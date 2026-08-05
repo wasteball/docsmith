@@ -1,0 +1,44 @@
+{
+  "_docsmith": 1,
+  "exportedAt": "样板文件 · 对应「文件库OSS_已支持MD分享-v2.html」用的那个上传接口。把 userCode 换成你自己的域账号，再到 设置 → 导入配置 选中本文件",
+  "data": {
+    "docsmith:storage": {
+      "active": "安得OSS",
+
+      "profiles": {
+        "安得OSS": {
+          "provider": "gateway",
+
+          "apiUrl": "https://anapi.annto.com/api-oss/oss/file/v2/upload",
+          "urlPath": "data.downUrl",
+          "fileField": "file",
+
+          "extraFields": [
+            { "key": "bucket", "value": "annto-rag" },
+            { "key": "userCode", "value": "wenbo19" },
+            { "key": "cdn", "value": "true" },
+            { "key": "publicRead", "value": "0" }
+          ],
+
+          "headers": []
+        },
+
+        "我的阿里云": {
+          "provider": "aliyun",
+
+          "region": "oss-cn-hangzhou",
+          "bucket": "<你的Bucket名>",
+          "accessKeyId": "<你的AccessKeyID>",
+          "accessKeySecret": "<你的AccessKeySecret>",
+
+          "prefix": "docsmith/",
+          "acl": "private",
+          "signedExpires": "604800",
+
+          "stsToken": "",
+          "customDomain": ""
+        }
+      }
+    }
+  }
+}

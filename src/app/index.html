@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-accent="blue">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docsmith</title>
+<script src="../core/appearance-global.js"></script>
+<link rel="stylesheet" href="../core/tokens.css">
+<link rel="stylesheet" href="../core/buttons.css">
+<link rel="stylesheet" href="./shell.css">
+</head>
+<body>
+
+<div class="shell">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="mark" id="brandMark">D</div>
+      <div class="brand-text">
+        <b id="brandName">Docsmith</b>
+        <span id="brandTag">文档，从此顺手</span>
+      </div>
+    </div>
+
+    <nav class="nav" id="nav">
+      <div class="nav-label">能力</div>
+      <div class="indicator" id="indicator"></div>
+      <!-- 能力按钮由 main.js 按配置渲染 -->
+    </nav>
+
+    <div class="empty-state" id="emptyState" hidden>
+      <p>菜单是空的。</p>
+      <button class="link-btn" id="emptyOpenSettings">去添加能力</button>
+    </div>
+
+    <div class="sidebar-foot">
+      <button class="foot-btn collapse" id="collapseBtn" title="收起 / 展开侧栏">
+        <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+      <div class="foot-spacer"></div>
+      <!-- 主题切换回到侧栏。之前把它收进「设置 → 外观」，理由是"同一件事
+           不要两个入口" —— 但主题是一天要点好几次的东西，藏在两层菜单后面
+           等于没有。这里改成三态循环（亮 / 暗 / 跟随系统），和设置面板里
+           是同一份数据、同一套取值，不存在两边不同步的老问题。 -->
+      <button class="foot-btn" id="themeBtn" title="主题：亮色" aria-label="切换主题"></button>
+      <button class="foot-btn" id="expandBtn" title="展开为整页（读长文档更舒服）">
+        <svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+      </button>
+      <button class="foot-btn" id="settingsBtn" title="设置">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <main class="stage" id="stage">
+    <!-- 内置能力的内容直接注入这里（每个占一个 .frame 容器）；
+         用户自建的外部网页仍然是 sandbox iframe。见 main.js 的 mount() -->
+  </main>
+
+</div>
+
+<!-- 设置面板由 core/settings-panel.js 动态创建 —— 全应用只有这一个。
+     以前外壳、文件库、Markdown 工作台各有一套，外观开关三处重复，
+     改了一处另外两处不同步。那是 iframe 时代的产物。 -->
+
+<input type="file" id="importFile" accept="application/json" hidden>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<script type="module" src="./main.js"></script>
+</body>
+</html>

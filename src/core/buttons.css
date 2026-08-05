@@ -1,0 +1,277 @@
+/* =====================================================================
+ * Docsmith · 按钮系统
+ * ---------------------------------------------------------------------
+ * 这个文件的存在是因为一个教训：全应用曾经有 18 种按钮类名。
+ *
+ *   btn / icon-btn / batch-btn / mini-btn / copy-btn / link-btn /
+ *   text-btn / rv-btn / mr-btn / foot-btn / gear-btn / sn-btn /
+ *   modal-btn / cb-btn / btn-add / ex-main-btn / dz-folder-btn / dl-run-btn
+ *
+ * 它们来自不同时期、不同页面，各自定义了一遍圆角、内边距、悬停色。
+ * 结果就是同一个界面里的按钮长得都不太一样 —— 用户说不出哪里怪，
+ * 但就是觉得不整齐。
+ *
+ * 这里不去重命名那 18 个类（改名要动几十处 HTML，风险大收益小），
+ * 而是给它们一个**共同的地基**：字体、圆角、过渡、焦点框、禁用态统一，
+ * 各自只保留真正需要不同的部分（尺寸和强调等级）。
+ *
+ * 三档强调，一个界面里最多出现一个「主要」：
+ *   主要 (--primary)   实色填充。这一屏最该点的那个
+ *   常规 (默认)        描边。同等重要的动作
+ *   轻量 (--ghost)     无边框。辅助动作，不该抢注意力
+ *
+ * 三档尺寸：
+ *   --sm  紧凑，用于工具栏、卡片内
+ *   默认  常规
+ *   --lg  用于空状态、对话框的主动作
+ * ===================================================================== */
+
+/* ============================================== 共同地基 */
+
+.btn,
+.icon-btn,
+.batch-btn,
+.mini-btn,
+.copy-btn,
+.link-btn,
+.text-btn,
+.rv-btn,
+.mr-btn,
+.foot-btn,
+.gear-btn,
+.sn-btn,
+.modal-btn,
+.cb-btn,
+.btn-add,
+.ex-main-btn,
+.ex-caret,
+.dz-folder-btn,
+.dl-run-btn,
+.hist-more,
+.ls-clear,
+.link-action,
+.hmm-item,
+.chg-review-link {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 450;
+  line-height: 1.4;
+  border-radius: var(--r-pill, 9999px);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: background-color .14s ease, border-color .14s ease, color .14s ease;
+  -webkit-font-smoothing: inherit;
+}
+
+/* 禁用态：全应用一致。不用 opacity 掉一半 —— 那样文字会糊 */
+.btn:disabled,
+.icon-btn:disabled,
+.batch-btn:disabled,
+.mini-btn:disabled,
+.rv-btn:disabled,
+.mr-btn:disabled,
+.modal-btn:disabled,
+.text-btn:disabled {
+  color: var(--text-mute);
+  border-color: var(--border);
+  background: transparent;
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+/* 键盘焦点永远可见 */
+.btn:focus-visible,
+.icon-btn:focus-visible,
+.batch-btn:focus-visible,
+.mini-btn:focus-visible,
+.copy-btn:focus-visible,
+.link-btn:focus-visible,
+.text-btn:focus-visible,
+.rv-btn:focus-visible,
+.mr-btn:focus-visible,
+.foot-btn:focus-visible,
+.gear-btn:focus-visible,
+.modal-btn:focus-visible,
+.hist-more:focus-visible,
+.link-action:focus-visible,
+.ex-main-btn:focus-visible,
+.ex-caret:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ============================================== 常规：描边 */
+
+.btn,
+.batch-btn,
+.modal-btn,
+.dl-run-btn,
+.btn-add,
+.rv-btn,
+.hist-more,
+.ls-purge {
+  border-color: var(--border);
+  background: var(--surface);
+  padding: 7px 15px;
+}
+
+.btn:hover,
+.batch-btn:hover,
+.modal-btn:hover,
+.rv-btn:hover,
+.hist-more:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ============================================== 主要：实色 */
+
+.btn.primary,
+.modal-btn.primary,
+.rv-primary,
+.add-save,
+.dl-run-btn,
+.cta,
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 500;
+  padding: 8px 17px;
+}
+
+.btn.primary:hover,
+.modal-btn.primary:hover,
+.rv-primary:hover,
+.add-save:hover,
+.dl-run-btn:hover,
+.cta:hover,
+.btn--primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--on-accent);
+}
+
+.btn.primary:active,
+.rv-primary:active,
+.add-save:active,
+.btn--primary:active {
+  background: var(--accent-press);
+  border-color: var(--accent-press);
+}
+
+/* ============================================== 轻量：无边框 */
+
+.text-btn,
+.link-action,
+.mini-btn,
+.copy-btn,
+.cb-btn,
+.sn-btn,
+.ls-clear,
+.btn--ghost {
+  border-color: transparent;
+  background: transparent;
+  padding: 5px 9px;
+  color: var(--text-mute);
+}
+
+.text-btn:hover,
+.link-action:hover,
+.mini-btn:hover,
+.copy-btn:hover,
+.cb-btn:hover,
+.sn-btn:hover,
+.ls-clear:hover,
+.btn--ghost:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+/* ============================================== 图标按钮：正方 */
+
+.icon-btn,
+.foot-btn,
+.gear-btn,
+.hist-more {
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-color: transparent;
+}
+
+.icon-btn:hover,
+.foot-btn:hover,
+.gear-btn:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+.icon-btn svg,
+.foot-btn svg,
+.gear-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ============================================== 危险动作 */
+
+.btn--danger,
+.text-btn.danger,
+.mr-btn.danger,
+.hmm-item.danger:hover span,
+.batch-btn.danger:hover {
+  color: var(--danger, #ea2261);
+}
+
+.btn--danger:hover,
+.text-btn.danger:hover,
+.mr-btn.danger:hover,
+.batch-btn.danger:hover {
+  border-color: var(--danger, #ea2261);
+  background: var(--danger-soft, rgba(234, 34, 97, .09));
+  color: var(--danger, #ea2261);
+}
+
+/* ============================================== 尺寸 */
+
+.btn--sm,
+.mr-btn,
+.mini-btn { font-size: 11.5px; padding: 4px 10px; }
+
+.btn--lg { font-size: 14px; padding: 10px 22px; }
+
+/* ============================================== 开启态 */
+
+/* 切换类按钮（审阅、区分大小写、只看改动…）用同一种"已开启"表达，
+   而不是各写各的高亮 */
+.btn.on,
+.icon-btn.on,
+.mini-btn.on,
+.mr-btn.on,
+.btn[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+:root {
+  --danger: #ea2261;
+  --danger-soft: rgba(234, 34, 97, .09);
+}
+
+[data-theme="dark"] {
+  --danger: #f96b8f;
+  --danger-soft: rgba(249, 107, 143, .13);
+}

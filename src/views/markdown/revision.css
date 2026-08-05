@@ -1,0 +1,431 @@
+/* =====================================================================
+   Docsmith · 改动审阅样式
+   ---------------------------------------------------------------------
+   配色克制：只有三种语义色 —— 新增（绿）、删除（红）、修改（琥珀）。
+   表格里只给变了的那一格上色，其余保持正常，这样一眼就能扫到改动点。
+   ===================================================================== */
+
+:root {
+  --rv-add: #22c55e;
+  --rv-add-soft: rgba(34, 197, 94, .12);
+  --rv-del: #ef4444;
+  --rv-del-soft: rgba(239, 68, 68, .12);
+  --rv-mod: #f59e0b;
+  --rv-mod-soft: rgba(245, 158, 11, .13);
+  --rv-w: 380px;
+}
+
+[data-theme="light"] {
+  --rv-add-soft: rgba(34, 197, 94, .13);
+  --rv-del-soft: rgba(239, 68, 68, .10);
+  --rv-mod-soft: rgba(245, 158, 11, .16);
+}
+
+/* ------------------------------------------------------------- 面板 */
+
+.rv-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--rv-w);
+  max-width: 92vw;
+  background: var(--surface, #141417);
+  border-left: 1px solid var(--border, #26262c);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform .22s cubic-bezier(.32, .72, 0, 1);
+  z-index: 40;
+  font-size: 13px;
+}
+
+.rv-panel.open { transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rv-panel { transition: none; }
+}
+
+/* 审阅打开时给正文让出位置，而不是盖在上面 —— 对照着看才有意义 */
+[data-review="on"] .doc-shell,
+[data-review="on"] .layout,
+[data-review="on"] main {
+  padding-right: var(--rv-w);
+}
+
+@media (max-width: 900px) {
+  [data-review="on"] .doc-shell,
+  [data-review="on"] .layout,
+  [data-review="on"] main { padding-right: 0; }
+  .rv-panel { box-shadow: -12px 0 32px rgba(0, 0, 0, .35); }
+}
+
+/* ------------------------------------------------------------- 头部 */
+
+.rv-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 12px 18px;
+  border-bottom: 1px solid var(--border, #26262c);
+  flex: 0 0 auto;
+}
+
+.rv-title { flex: 1; display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+.rv-title b { font-size: 14px; color: var(--text, #ececee); }
+
+.rv-count {
+  font-size: 11.5px;
+  color: var(--text-mute, #8e8e98);
+  font-variant-numeric: tabular-nums;
+}
+
+.rv-nav { display: flex; gap: 4px; }
+
+.rv-icon {
+  background: none;
+  border: 1px solid var(--border, #26262c);
+  border-radius: 6px;
+  color: var(--text-dim, #a0a0a8);
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.rv-icon:hover { border-color: var(--accent, #f59e0b); color: var(--accent, #f59e0b); }
+
+/* ------------------------------------------------------------- 列表 */
+
+.rv-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rv-empty {
+  padding: 48px 20px;
+  text-align: center;
+  color: var(--text-mute, #8e8e98);
+  line-height: 1.8;
+}
+
+.rv-empty-sub { font-size: 12px; margin-top: 8px; }
+
+.rv-card {
+  border: 1px solid var(--border, #26262c);
+  border-radius: 10px;
+  background: var(--bg, #0b0b0d);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color .15s;
+}
+
+.rv-card:hover { border-color: var(--border-strong, #33333a); }
+
+.rv-card.active {
+  border-color: var(--accent, #f59e0b);
+  box-shadow: 0 0 0 1px var(--accent-soft, rgba(245, 158, 11, .15));
+}
+
+.rv-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  background: var(--surface-2, #1a1a1e);
+  border-bottom: 1px solid var(--border, #26262c);
+}
+
+.rv-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.rv-badge-table { background: var(--rv-mod-soft); color: var(--rv-mod); }
+.rv-badge-text { background: var(--accent-soft, rgba(245,158,11,.15)); color: var(--text-dim, #a0a0a8); }
+
+.rv-summary {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text, #ececee);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rv-line {
+  font-size: 10.5px;
+  color: var(--text-mute, #8e8e98);
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+
+.rv-card-body { padding: 10px 12px; max-height: 380px; overflow: auto; }
+
+.rv-card-foot {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--border, #26262c);
+}
+
+.rv-btn {
+  background: none;
+  border: 1px solid var(--border, #26262c);
+  border-radius: 6px;
+  color: var(--text-dim, #a0a0a8);
+  font-size: 11.5px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.rv-btn:hover { border-color: var(--accent, #f59e0b); color: var(--accent, #f59e0b); }
+.rv-accept:hover { border-color: var(--rv-add); color: var(--rv-add); }
+.rv-revert:hover { border-color: var(--rv-del); color: var(--rv-del); }
+
+.rv-primary {
+  background: var(--accent, #f59e0b);
+  border-color: var(--accent, #f59e0b);
+  color: #0b0b0d;
+  font-weight: 600;
+}
+
+.rv-primary:hover { filter: brightness(1.08); color: #0b0b0d; }
+
+/* --------------------------------------------------------- 正文改动 */
+
+.rv-text {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+.rv-line-row { display: flex; gap: 8px; padding: 2px 0; }
+
+.rv-mark {
+  flex: 0 0 14px;
+  text-align: center;
+  color: var(--text-mute, #8e8e98);
+  user-select: none;
+  font-size: 11px;
+}
+
+.rv-line-row.add .rv-mark { color: var(--rv-add); }
+.rv-line-row.del .rv-mark { color: var(--rv-del); }
+.rv-line-row.mod .rv-mark { color: var(--rv-mod); }
+
+.rv-content { flex: 1; word-break: break-word; white-space: pre-wrap; }
+
+.rv-was {
+  color: var(--text-mute, #8e8e98);
+  font-size: 11.5px;
+}
+
+.rv-text ins {
+  background: var(--rv-add-soft);
+  color: var(--rv-add);
+  text-decoration: none;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.rv-text del {
+  background: var(--rv-del-soft);
+  color: var(--rv-del);
+  border-radius: 3px;
+  padding: 0 2px;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+/* --------------------------------------------------------- 表格改动 */
+
+.rv-table-wrap { overflow-x: auto; margin: -2px; padding: 2px; }
+
+.rv-table {
+  border-collapse: collapse;
+  font-size: 11.5px;
+  width: 100%;
+}
+
+.rv-table th,
+.rv-table td {
+  border: 1px solid var(--border, #26262c);
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.6;
+}
+
+.rv-table th {
+  background: var(--surface-2, #1a1a1e);
+  color: var(--text, #ececee);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 行号槽：整行新增/删除时在最左边打个记号，像飞书那样一眼扫到 */
+.rv-table .r-gutter {
+  border: 0;
+  width: 16px;
+  padding: 5px 2px;
+  text-align: center;
+  color: var(--text-mute, #8e8e98);
+  font-size: 10px;
+  user-select: none;
+}
+
+.rv-table tr.r-add .r-gutter { color: var(--rv-add); }
+.rv-table tr.r-del .r-gutter { color: var(--rv-del); }
+.rv-table tr.r-mod .r-gutter { color: var(--rv-mod); }
+
+.rv-table tr.r-add td:not(.r-gutter) { background: var(--rv-add-soft); }
+.rv-table tr.r-del td:not(.r-gutter) { background: var(--rv-del-soft); opacity: .75; }
+.rv-table tr.r-del del { text-decoration: line-through; color: var(--rv-del); }
+
+/* 单元格级：只有这一格上色。改一个数字，就只有一格是彩的。 */
+.rv-table td.c-mod {
+  background: var(--rv-mod-soft);
+  box-shadow: inset 2px 0 0 var(--rv-mod);
+}
+
+.c-old {
+  color: var(--rv-del);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.c-arrow {
+  color: var(--text-mute, #8e8e98);
+  margin: 0 4px;
+  font-size: 10px;
+}
+
+.c-new { color: var(--rv-add); font-weight: 500; }
+
+.c-old i, .c-new i { opacity: .6; font-style: normal; }
+
+/* --------------------------------------------------------- 底部 */
+
+.rv-foot {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--border, #26262c);
+  flex: 0 0 auto;
+}
+
+.rv-foot .rv-btn { flex: 1; text-align: center; }
+
+.rv-hint {
+  margin: 0;
+  padding: 0 14px 14px;
+  font-size: 10.5px;
+  line-height: 1.7;
+  color: var(--text-mute, #8e8e98);
+  flex: 0 0 auto;
+}
+
+/* ------------------------------------------- 正文里的改动条 */
+
+.rv-gutter-bar {
+  position: absolute;
+  left: -14px;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--rv-mod);
+  cursor: pointer;
+  opacity: .55;
+  transition: opacity .15s, width .15s;
+}
+
+.rv-gutter-bar:hover,
+.rv-gutter-bar.active { opacity: 1; width: 4px; }
+
+/* 审阅开着时，正文里的表格也标出变动过的位置 */
+[data-review="on"] .preview table tr[data-rv-changed] {
+  box-shadow: inset 3px 0 0 var(--rv-mod);
+}
+
+:focus-visible { outline: 2px solid var(--accent, #f59e0b); outline-offset: 2px; }
+
+/* ------------------------------------------- 正文里的表格改动标记 */
+
+.preview td[data-rv-cell="mod"] {
+  background: var(--rv-mod-soft);
+  position: relative;
+}
+
+/* 右上角一个小三角，不抢版面，但扫一眼就能定位 */
+.preview td[data-rv-cell="mod"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  border: 5px solid transparent;
+  border-top-color: var(--rv-mod);
+  border-right-color: var(--rv-mod);
+}
+
+.preview tr[data-rv-changed="add"] > * {
+  background: var(--rv-add-soft);
+}
+
+.preview tr[data-rv-changed="mod"] > *:first-child {
+  box-shadow: inset 3px 0 0 var(--rv-mod);
+}
+
+/* 悬停显示改前的值 */
+.rv-inline-old {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(3px);
+  background: var(--surface, #141417);
+  border: 1px solid var(--rv-mod);
+  border-radius: 7px;
+  padding: 6px 9px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--rv-del);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .14s, transform .14s;
+  z-index: 20;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .3);
+}
+
+.rv-inline-old b {
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--text-mute, #8e8e98);
+  font-weight: 600;
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.rv-inline-old i {
+  font-style: normal;
+  opacity: .6;
+}
+
+.preview td[data-rv-cell="mod"]:hover .rv-inline-old {
+  opacity: 1;
+  transform: translateX(-50%);
+}

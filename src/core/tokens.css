@@ -1,0 +1,223 @@
+/* =====================================================================
+ * Docsmith · 设计令牌
+ * ---------------------------------------------------------------------
+ * 整套界面的颜色、字号、圆角、间距都从这里出。改这一个文件，全局跟着变。
+ *
+ * 取向参考了 Stripe 的设计语言，具体借了四件事：
+ *
+ *   1. 亮色优先。 文档工具的主场是阅读，白底比深底更适合长时间看字。
+ *      深色仍然保留，切换即用。
+ *   2. 发丝线代替重边框。 分隔靠 1px 的浅灰线和大留白，不靠框和阴影。
+ *   3. 标题用细字重 + 负字距。 300 字重配 -0.02em 的收紧，标题显得克制、
+ *      有编辑感，而不是靠加粗来强调。
+ *   4. 数字用等宽字形。 文件大小、进度、行号这些地方，数字对齐了才好扫。
+ *
+ * 没有借的：那套大面积渐变网格。它适合营销页，不适合每天要盯几小时的
+ * 工作界面 —— 那里安静比好看重要。
+ * ===================================================================== */
+
+:root {
+  /* ---------------------------------------------------------- 字体 */
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display",
+          "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --mono: "SF Mono", ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+  --serif: "Source Han Serif SC", "Songti SC", Georgia, "Times New Roman", serif;
+
+  /* 标题：细字重 + 负字距。字号越大收得越紧。 */
+  --display-weight: 300;
+  --display-track-xl: -0.028em;
+  --display-track-lg: -0.02em;
+  --display-track-md: -0.012em;
+
+  /* ---------------------------------------------------------- 圆角 */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-pill: 9999px;
+
+  /* ---------------------------------------------------------- 间距 */
+  --s-xxs: 2px;
+  --s-xs: 4px;
+  --s-sm: 8px;
+  --s-md: 12px;
+  --s-lg: 16px;
+  --s-xl: 24px;
+  --s-xxl: 32px;
+
+  /* ------------------------------------------------------- 强调色 */
+  --accent: #533afd;
+  --accent-hover: #665efd;
+  --accent-press: #4434d4;
+  --accent-soft: rgba(83, 58, 253, .10);
+
+  --rail: 74px;
+  --rail-open: 248px;
+}
+
+/* ---------------------------------------------------- 可选强调色 */
+[data-accent="amber"]  { --accent: #b45309; --accent-hover: #d97706; --accent-press: #92400e; --accent-soft: rgba(180, 83, 9, .10); }
+[data-accent="blue"]   { --accent: #533afd; --accent-hover: #665efd; --accent-press: #4434d4; --accent-soft: rgba(83, 58, 253, .10); }
+[data-accent="green"]  { --accent: #067647; --accent-hover: #059669; --accent-press: #045c37; --accent-soft: rgba(6, 118, 71, .10); }
+[data-accent="violet"] { --accent: #7c3aed; --accent-hover: #8b5cf6; --accent-press: #6d28d9; --accent-soft: rgba(124, 58, 237, .11); }
+[data-accent="pink"]   { --accent: #ea2261; --accent-hover: #f43f75; --accent-press: #be123c; --accent-soft: rgba(234, 34, 97, .10); }
+[data-accent="cyan"]   { --accent: #0e7490; --accent-hover: #0891b2; --accent-press: #155e75; --accent-soft: rgba(14, 116, 144, .10); }
+
+/* ============================================================ 亮色 */
+[data-theme="light"] {
+  --bg: #ffffff;
+  --sidebar: #f6f9fc;
+  --surface: #ffffff;
+  --surface-2: #f6f9fc;
+  --surface-3: #eef3f8;
+
+  --border: #e3e8ee;
+  --border-strong: #d3dce6;
+  --border-input: #a8c3de;
+
+  --text: #0d253d;
+  --text-dim: #425466;
+  --text-mute: #64748d;
+  --on-accent: #ffffff;
+
+  /* 蓝调阴影 —— 比中性灰阴影干净，是这套语言里最容易被忽略的一处细节 */
+  --shadow-sm: 0 1px 2px rgba(0, 55, 112, .06), 0 1px 1px rgba(0, 55, 112, .04);
+  --shadow: 0 2px 5px rgba(0, 55, 112, .07), 0 8px 16px -6px rgba(0, 55, 112, .10);
+  --shadow-lg: 0 4px 8px rgba(0, 55, 112, .06), 0 16px 40px -12px rgba(0, 55, 112, .16);
+
+  color-scheme: light;
+}
+
+/* ============================================================ 暗色 */
+[data-theme="dark"] {
+  --bg: #0a1929;
+  --sidebar: #0d1f33;
+  --surface: #11263c;
+  --surface-2: #16304a;
+  --surface-3: #1c3a58;
+
+  --border: #1f3c58;
+  --border-strong: #2b5074;
+  --border-input: #35618c;
+
+  --text: #eaf1f8;
+  --text-dim: #a9bdd1;
+  --text-mute: #7591ad;
+  --on-accent: #ffffff;
+
+  --accent: #7d6bff;
+  --accent-hover: #9a8dff;
+  --accent-press: #6552e8;
+  --accent-soft: rgba(125, 107, 255, .16);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3);
+  --shadow: 0 4px 12px rgba(0, 0, 0, .34);
+  --shadow-lg: 0 16px 44px rgba(0, 0, 0, .46);
+
+  color-scheme: dark;
+}
+
+[data-theme="dark"][data-accent="amber"]  { --accent: #f0a132; --accent-hover: #fbbf5a; --accent-press: #cd8420; }
+[data-theme="dark"][data-accent="green"]  { --accent: #34d399; --accent-hover: #6ee7b7; --accent-press: #10b981; }
+[data-theme="dark"][data-accent="pink"]   { --accent: #f96bee; --accent-hover: #fb9df3; --accent-press: #e044d2; }
+[data-theme="dark"][data-accent="cyan"]   { --accent: #38bdf8; --accent-hover: #7dd3fc; --accent-press: #0ea5e9; }
+
+/* ==================================================== 全局细节 */
+
+/* ------------------------------------------------------------ [hidden]
+   浏览器自带的 [hidden]{display:none} 属于 UA 层，作者样式里随便一句
+   display 就能盖掉它。而项目里 .cp-root（命令面板）、.set-root（设置弹层）、
+   .ex-menu（导出菜单）、.rv-nav 全都写了 display:flex —— 于是那句
+   el.hidden = true 只是加了个属性，元素照旧铺满视口、照旧吃掉所有点击。
+   用户那边的表现就是「用一会儿就卡死，只能刷新页面」：一个完全看不见的
+   全屏遮罩罩在上面（.set-root 还是 z-index:300，连外壳导航一起罩死），
+   页面看着好好的，但什么都点不动。「导出下拉框不消失」也是同一个原因。
+
+   所以在作者层把这条规则重申一遍。
+   ·「!important」是必需的，不是保险：[hidden] 和 .cp-root 特异度相同，
+     而 workspace.css 排在 tokens.css 之后 —— 平局时后来者胜，不加就等于没写。
+   · 这条必须留在 tokens.css：外壳和三个能力页都引它，放到别处会漏掉一半。
+   已逐个核对过项目里所有 hidden 切换点，没有任何元素依赖「带 hidden 却仍显示」。 */
+[hidden] { display: none !important; }
+
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+body { font-family: var(--sans); }
+
+/* 标题一律细字重 + 负字距 */
+h1, h2, h3, .brand-text b, .panel-head h2 {
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-track-lg);
+}
+
+h1 { letter-spacing: var(--display-track-xl); }
+h4, h5, h6 { font-weight: 500; letter-spacing: var(--display-track-md); }
+
+/* 数字等宽对齐：文件大小、进度、行号扫起来才不会跳 */
+.cap-idx, .rv-line, .rv-count, .mr-url, .hist-size, .queue-pct,
+time, .vd-note, td, th, .fd-labeltext {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 按钮：胶囊形，紧凑内边距 */
+.btn, .add-save, .rv-primary, .modal-btn.primary, .cta {
+  border-radius: var(--r-pill);
+  padding: 8px 16px;
+  font-weight: 500;
+  letter-spacing: 0;
+  transition: background-color .14s, border-color .14s, box-shadow .14s;
+}
+
+.btn.primary, .add-save, .rv-primary, .modal-btn.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn.primary:hover, .add-save:hover, .rv-primary:hover, .modal-btn.primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn.primary:active, .add-save:active, .rv-primary:active {
+  background: var(--accent-press);
+  box-shadow: none;
+}
+
+/* 输入框：发丝边 + 聚焦时一圈柔光，不用粗描边 */
+input[type="text"], input[type="search"], input[type="password"],
+textarea, select {
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 8px 12px;
+  font-family: var(--sans);
+  transition: border-color .14s, box-shadow .14s;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: none;
+}
+
+/* 卡片：大圆角、发丝边、克制的阴影 */
+.card, .rv-card, .menu-row, .note, .storage-gate, .vd-banner {
+  border-radius: var(--r-lg);
+}
+
+/* 键盘焦点始终可见 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+  }
+}

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-accent="blue" data-view-id="files">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文件库 · Docsmith</title>
+
+<script src="../../core/appearance-global.js"></script>
+<link rel="stylesheet" href="../../core/tokens.css">
+<link rel="stylesheet" href="../../core/buttons.css">
+<link rel="stylesheet" href="./library.css">
+</head>
+<body>
+
+<div class="app">
+
+  <div class="header">
+    <div class="brand">
+      <div class="logo">↑</div>
+      <div class="brand-text">
+        <h1>文件库</h1>
+        <p>拖进来 · 拿链接 · 发出去</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="gear-btn md-link" id="md-convert-link" title="打开 Markdown 工作台">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M2 4.5h12v7H2z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+          <path d="M4 9.5V6.8l1.4 1.6L6.8 6.8v2.7M9.4 6.5v3M9.4 9.5l1.4-1.5M9.4 9.5L8 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="md-link-txt">Markdown</span>
+      </button>
+      <div class="preset-chip" id="preset-chip">
+        <span>env</span>
+        <select id="preset-select"></select>
+      </div>
+      <!-- 主题和设置的入口已删除。
+
+           外壳侧栏底部本来就各有一颗（#themeBtn / #settingsBtn），而且设置
+           全应用只有一个面板。这里再放一份的结果是：同一件事两个入口，
+           两颗按钮长得还不一样；用户截图里「文件库怎么还有主题和设置」
+           就是这个。留着的那颗齿轮点了也只是把请求转给外壳，纯属绕一圈。
+
+           要改主题 / 开设置，用侧栏底部那两颗（或 Ctrl+, 打开设置）。 -->
+    </div>
+  </div>
+
+  <div class="first-use-banner" id="first-use-banner">
+    <span>👋 第一次使用？先配置一下 API 和 userCode</span>
+    <span>→</span>
+  </div>
+
+  <div class="dropzone" id="dropzone">
+    <input type="file" id="file-input" multiple style="display:none" />
+    <input type="file" id="folder-input" webkitdirectory directory multiple style="display:none" />
+    <div class="dropzone-inner">
+      <div class="dropzone-icon">⤒</div>
+      <div class="dropzone-text">拖拽文件或文件夹到此处，或点击选择</div>
+      <div class="dropzone-hint">支持多文件与整个文件夹 · <kbd>Ctrl</kbd>+<kbd>V</kbd> 粘贴 · <button type="button" class="dz-folder-btn" id="pick-folder">📁 上传文件夹</button></div>
+    </div>
+  </div>
+
+  <div class="upload-cat-bar">
+    <label>零散文件归类到</label>
+    <select id="upload-category"></select>
+    <span class="cat-hint">上传文件夹时按文件夹名自动分类</span>
+    <button class="manage-cats" id="btn-manage-cats" title="新增 / 重命名 / 删除分类">⚙ 管理分类</button>
+  </div>
+
+  <div class="latest" id="latest">
+    <div class="latest-header">
+      <span class="check">✓</span>
+      <span>上传成功</span>
+      <span class="auto-copied" id="auto-copied-tag">已自动复制</span>
+    </div>
+    <div class="latest-name" id="latest-name"></div>
+    <div class="latest-url">
+      <input type="text" id="latest-url-input" readonly />
+      <button class="copy-btn share" id="latest-share">⤴ share</button>
+      <button class="copy-btn open" id="latest-download">↓ 下载</button>
+      <button class="copy-btn open" id="latest-open">↗ open</button>
+      <button class="copy-btn" id="latest-copy">copy</button>
+    </div>
+  </div>
+
+  <div class="queue" id="queue"></div>
+
+  <div class="dl-panel" id="dl-panel">
+    <div class="dl-panel-head" id="dl-panel-head">
+      <span class="dl-panel-title">↓ 下载 / 转换</span>
+      <span class="dl-panel-hint">粘贴链接 · 自动识别 · md→Word/PDF · ppt→PDF</span>
+      <span class="dl-chev">▸</span>
+    </div>
+    <div class="dl-panel-body">
+      <textarea id="dl-input" placeholder="粘贴 OSS 链接或中转页链接（支持 file_path=... 形式）"></textarea>
+      <div class="dl-preview" id="dl-preview"></div>
+      <div class="dl-fmt" id="dl-fmt">
+        <div class="dl-fmt-label"><span>输出格式</span><span class="auto-tag" id="dl-auto-tag">✓ 已应用偏好</span></div>
+        <div class="seg-fmt" id="dl-seg"></div>
+        <label class="dl-remember"><input type="checkbox" id="dl-remember"><span>记住该类型的格式偏好</span></label>
+      </div>
+      <div class="field" style="margin-top:12px;">
+        <label>保存文件名 · 可选</label>
+        <input type="text" id="dl-fname" placeholder="留空自动识别" />
+      </div>
+      <button class="dl-run-btn" id="dl-run">下载文件</button>
+    </div>
+  </div>
+
+  <div class="history-section">
+    <div class="history-head">
+      <div class="history-title">
+        <button class="hist-check" id="select-all-check" title="全选 / 取消全选"></button>
+        <span>已上传</span>
+        <span class="count" id="history-count">0</span>
+      </div>
+      <div class="history-actions">
+        <!-- 低频动作收进「⋯」，标题行只留搜索和计数 -->
+        <button class="hist-more" id="hist-more" type="button"
+                aria-haspopup="menu" aria-expanded="false" title="更多">⋯</button>
+        <div class="hist-more-menu" id="hist-more-menu" role="menu" hidden>
+          <button class="hmm-item" id="hmm-export" role="menuitem" type="button">
+            <span>导出记录</span><small>存成 JSON，换电脑时能带走</small>
+          </button>
+          <button class="hmm-item danger" id="hmm-clear" role="menuitem" type="button">
+            <span>清空记录</span><small>只清本地列表，云上的文件不动</small>
+          </button>
+        </div>
+        <span class="tb-attic" aria-hidden="true">
+          <button class="text-btn" id="btn-export-history">导出记录</button>
+          <button class="text-btn danger" id="btn-clear-history">清空记录</button>
+        </span>
+      </div>
+    </div>
+    <div class="lib-toolbar">
+      <div class="lib-search">
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+        <input type="search" id="hist-search" placeholder="搜文件名…" aria-label="搜索文件" autocomplete="off">
+        <button class="ls-clear" id="hist-search-clear" type="button" title="清除搜索" hidden>✕</button>
+      </div>
+      <span class="lib-count" id="hist-count"></span>
+    </div>
+    <div class="cat-filter" id="cat-filter"></div>
+    <div class="kind-filter" id="kind-filter"></div>
+    <div class="batch-bar" id="batch-bar">
+      <span class="batch-count" id="batch-count">未选择</span>
+      <div class="batch-spacer"></div>
+      <select class="batch-btn" id="batch-move" title="移动到分类"></select>
+      <button class="batch-btn primary" id="batch-share">⤴ share</button>
+      <button class="batch-btn" id="batch-download" title="逐个分别下载所选文件">↓ 逐个</button>
+      <button class="batch-btn" id="batch-zip" title="打包成一个 ZIP（按已建分类归集到文件夹）">🗜 打包</button>
+      <button class="batch-btn" id="batch-copy">copy urls</button>
+      <button class="batch-btn danger" id="batch-delete">delete</button>
+      <button class="batch-btn" id="batch-clear">cancel</button>
+    </div>
+    <div class="history-list" id="history-list"></div>
+  </div>
+
+</div>
+
+<!-- 设置抽屉已删除。全应用只有一个设置面板，在外壳里（core/settings-panel.js）。
+     以前每个页面自带一套，是 iframe 时代不得已的做法：那时页面之间互相够不着。
+     现在同源，一个就够，也只能有一个 —— 三套开关同时存在，用户不知道哪个算数。 -->
+
+
+<div id="renderHost"></div>
+
+<div class="toast-container" id="toasts"></div>
+<button class="to-top" id="to-top" type="button" title="回到顶部" aria-label="回到顶部">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
+
+<div class="modal-backdrop" id="modal">
+  <div class="modal">
+    <h3 id="modal-title">Input</h3>
+    <input type="text" id="modal-input" />
+    <div class="modal-actions">
+      <button class="modal-btn" id="modal-cancel">cancel</button>
+      <button class="modal-btn primary" id="modal-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+
+
+
+
+
+<!-- 第三方组件。缺了哪个，对应功能会自己说清楚缺什么、还能怎么办。
+
+     html2pdf / pptx-preview 两个都没有随包附带（加起来好几 MB，而且只
+     服务「下载时顺手转个格式」这一条支线）。原来这里挂着指向它们的
+     <script>，文件根本不存在 —— 每次打开刷两条 404，真报错就埋在噪音里了。
+     现在删掉标签，改由用到它们的地方自己兜底：
+       · downloader.js 的 mdToPdf / pptToPdf 会给出一句人话，并指向
+         Markdown 工作台的「导出 → PDF」（那条路不依赖任何第三方库）
+
+     ZIP 打包原来是运行时从 cdnjs 拉 JSZip —— 在扩展里那是死路：MV3 禁止
+     远端代码，CSP 也只允许 'self'。现在换成自带的 zip-writer.js。 -->
+<script src="../../vendor/marked.min.js"></script>
+<script src="../../vendor/purify.min.js"></script>
+<script src="../../vendor/docx.umd.js"></script>
+<script src="./zip-writer.js"></script>
+
+<!-- 兜底：上面的组件缺席时，用自带的渲染器顶上，绝不白屏 -->
+<script src="../markdown/markdown-fallback.js"></script>
+
+<script type="module" src="../shared/cloud-bridge.js"></script>
+<script type="module" src="../shared/view-boot.js"></script>
+<script type="module" src="./storage-form.js"></script>
+
+<!-- 「我现在是不是前台那个能力」——window 级快捷键靠它决定要不要响应。
+     必须排在 library.js / wire-up.js 之前：它们绑监听时就要用到。 -->
+<script defer src="../shared/active.js"></script>
+<script defer src="../shared/prefs.js"></script>
+<script defer src="./library.js"></script>
+<script defer src="./downloader.js"></script>
+
+<!-- 接线放最后：此时界面已渲染，能直接往上挂东西 -->
+<script type="module" src="./wire-up.js"></script>
+</body>
+</html>

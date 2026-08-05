@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-accent="blue">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>开始使用 Docsmith</title>
+<script src="../../core/appearance-global.js"></script>
+<link rel="stylesheet" href="../../core/tokens.css">
+<link rel="stylesheet" href="../../core/buttons.css">
+<style>
+:root {
+  --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --accent: #f59e0b;
+}
+[data-accent="blue"]   { --accent: #3b82f6; }
+[data-accent="green"]  { --accent: #22c55e; }
+[data-accent="violet"] { --accent: #8b5cf6; }
+[data-accent="pink"]   { --accent: #ec4899; }
+[data-accent="cyan"]   { --accent: #06b6d4; }
+
+[data-theme="dark"] {
+  --bg: #0b0b0d; --surface: #141417; --surface-2: #1a1a1e;
+  --border: #26262c; --text: #ececee; --text-dim: #a0a0a8; --text-mute: #6e6e78;
+}
+[data-theme="light"] {
+  --bg: #fbfbfa; --surface: #ffffff; --surface-2: #f4f4f2;
+  --border: #e2e2df; --text: #1c1c1e; --text-dim: #55555c; --text-mute: #8a8a92;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.75 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 720px; margin: 0 auto; padding: 72px 28px 96px; }
+
+.hero-mark {
+  width: 48px; height: 48px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  display: grid; place-items: center; margin-bottom: 26px;
+}
+.hero-mark span { display: block; width: 22px; }
+.hero-mark i {
+  display: block; height: 2.5px; border-radius: 2px;
+  background: var(--accent); margin-bottom: 4px;
+}
+.hero-mark i:last-child { width: 62%; margin-bottom: 0; }
+
+h1 { font-size: 30px; line-height: 1.3; margin: 0 0 12px; letter-spacing: -.5px; }
+.lede { font-size: 16px; color: var(--text-dim); margin: 0 0 44px; max-width: 52ch; }
+
+h2 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 1.4px;
+  color: var(--text-mute); font-weight: 600;
+  margin: 48px 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px 22px; margin-bottom: 12px;
+}
+.card h3 { margin: 0 0 6px; font-size: 15px; }
+.card p { margin: 0; color: var(--text-dim); font-size: 14px; }
+
+ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 0; }
+ol.steps li {
+  counter-increment: s; position: relative;
+  padding: 0 0 26px 46px; border-left: 1px solid var(--border); margin-left: 13px;
+}
+ol.steps li:last-child { border-left-color: transparent; padding-bottom: 0; }
+ol.steps li::before {
+  content: counter(s); position: absolute; left: -13px; top: -2px;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--surface-2); border: 1px solid var(--border);
+  color: var(--accent); font: 600 12px/24px var(--mono); text-align: center;
+}
+ol.steps b { display: block; font-size: 15px; margin-bottom: 4px; }
+ol.steps span { color: var(--text-dim); font-size: 14px; }
+
+.note {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px; padding: 16px 18px; margin: 28px 0;
+  font-size: 14px; color: var(--text-dim);
+}
+.note b { color: var(--text); }
+
+kbd {
+  font: 12px var(--mono); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 5px; padding: 2px 7px;
+  color: var(--text);
+}
+code {
+  font: 13px var(--mono); background: var(--surface-2);
+  border-radius: 5px; padding: 2px 6px; color: var(--accent);
+}
+
+.cta {
+  display: inline-block; margin-top: 8px;
+  background: var(--accent); color: #0b0b0d;
+  border: 0; border-radius: 9px; padding: 12px 22px;
+  font: 600 14px var(--sans); cursor: pointer; text-decoration: none;
+}
+.cta:hover { filter: brightness(1.1); }
+
+footer {
+  margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--border);
+  font-size: 13px; color: var(--text-mute);
+}
+footer a { color: var(--text-dim); }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero-mark"><span><i></i><i></i><i></i></span></div>
+
+  <h1>Docsmith 装好了</h1>
+  <p class="lede">
+    它能把一份 Markdown 变成排版干净的网页、Word 或 PDF，也能把任何文件传到你自己的
+    云盘上换成一条链接发出去。全部在浏览器侧边的一个面板里完成。
+  </p>
+
+  <h2>它能替你做什么</h2>
+
+  <div class="card">
+    <h3>把 Markdown 读舒服</h3>
+    <p>拖一个 .md 文件进来就行。代码、表格、数学公式、流程图都会正常显示，不用装别的东西。</p>
+  </div>
+
+  <div class="card">
+    <h3>改完直接导出</h3>
+    <p>可以在阅读界面上直接改字，改完导出成 Word、PDF、网页或原始 Markdown，交给同事就能用。</p>
+  </div>
+
+  <div class="card">
+    <h3>一键变成链接</h3>
+    <p>点「分享」，文件会传到你自己的云存储，回来一条链接。发给谁，谁点开就能看。</p>
+  </div>
+
+  <div class="card">
+    <h3>顺手一个文件库</h3>
+    <p>任何文件拖进来都能上传、分类、批量打包下载。Markdown 还能顺便转成 Word 或 PDF。</p>
+  </div>
+
+  <h2>怎么开始</h2>
+
+  <ol class="steps">
+    <li>
+      <b>打开面板</b>
+      <span>点浏览器右上角的 Docsmith 图标，或者按 <kbd>Alt</kbd> + <kbd>D</kbd>。</span>
+    </li>
+    <li>
+      <b>拖一个 Markdown 文件进去</b>
+      <span>没有现成的？随便找个 GitHub 项目的 README 链接，粘进地址框也行。</span>
+    </li>
+    <li>
+      <b>想用分享功能，就连一次云存储</b>
+      <span>
+        到「文件库 → 设置」里填上你的存储信息。支持阿里云 OSS，也支持公司现成的上传接口。
+        只连这一次，之后都不用管。
+      </span>
+    </li>
+  </ol>
+
+  <div class="note">
+    <b>你的东西在你自己手里。</b>
+    Docsmith 没有服务器。文件直接从你的浏览器传到你自己的云存储空间，
+    密钥和配置只存在这台电脑上。我们看不到，也存不了任何东西。
+  </div>
+
+  <h2>不想连云存储也完全能用</h2>
+  <p style="color:var(--text-dim);margin-top:-4px">
+    阅读、编辑、导出 Word / PDF / 网页，这些都不需要联网存储 —— 直接存到本地就好。
+    只有「生成分享链接」这一项需要先连一次。
+  </p>
+
+  <a class="cta" id="open">打开 Docsmith</a>
+
+  <footer>
+    Docsmith 是一个开源项目 ·
+    <a id="repo" href="#" target="_blank" rel="noopener">项目主页</a> ·
+    遇到问题或有想法，欢迎去提 issue
+  </footer>
+
+</div>
+
+<script type="module">
+import { BRAND } from '../../core/config.js';
+document.getElementById('repo').href = BRAND.repo;
+document.getElementById('open').addEventListener('click', async () => {
+  try {
+    const w = await chrome.windows.getCurrent();
+    await chrome.sidePanel.open({ windowId: w.id });
+  } catch (e) {
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/app/index.html') });
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-accent="blue">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>使用说明 · Docsmith</title>
+
+<!-- 抢在第一帧之前套用主题，否则暗色下会闪一下白 -->
+<script src="../../core/appearance-global.js"></script>
+
+<link rel="stylesheet" href="../../vendor/hljs-light.css" id="hljs-light">
+<link rel="stylesheet" href="../../vendor/hljs-dark.css" id="hljs-dark">
+<link rel="stylesheet" href="../../core/tokens.css">
+<!-- 正文样式跟 Markdown 工作台共用同一份，说明文档看起来就和读别的文档一样 -->
+<link rel="stylesheet" href="../markdown/doc.css">
+
+<style>
+  html, body { height: auto; overflow: visible; }
+  body { margin: 0; background: var(--doc-bg); color: var(--doc-fg); }
+  .doc { --doc-measure: 820px; }
+  .back {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 16px;
+    background: color-mix(in srgb, var(--doc-bg) 88%, transparent);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--doc-border);
+    font-family: var(--doc-head); font-size: 13px; color: var(--doc-muted);
+  }
+  .back button {
+    font: inherit; cursor: pointer; color: var(--doc-accent);
+    background: transparent; border: 1px solid var(--doc-border);
+    border-radius: 7px; padding: 4px 11px;
+  }
+  .back button:hover { border-color: var(--doc-accent); }
+  .doc-err {
+    margin: 40px auto; max-width: 620px; padding: 20px;
+    border: 1px solid var(--doc-border); border-radius: 10px;
+    font-family: var(--doc-head); color: var(--doc-muted); line-height: 1.7;
+  }
+</style>
+</head>
+<body>
+
+<div class="back">
+  <button type="button" id="backBtn">← 返回</button>
+  <span id="docTitle">使用说明</span>
+</div>
+
+<article class="doc" id="doc">
+  <p class="doc-err">正在打开…</p>
+</article>
+
+<script src="../../vendor/marked.min.js"></script>
+<script src="../../vendor/purify.min.js"></script>
+<script src="../../vendor/highlight.min.js"></script>
+<script src="./viewer.js"></script>
+
+</body>
+</html>
