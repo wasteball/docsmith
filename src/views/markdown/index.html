@@ -27,7 +27,12 @@
 
   <header class="topbar">
     <button class="icon-btn" id="sideToggle" title="收起 / 展开侧栏 (Ctrl/⌘ + B)" aria-label="收起 / 展开侧栏" type="button">☰</button>
-    <div class="brand">MD<span class="dot">·</span>Word</div>
+    <!-- 这里原来写「MD·Word」。那是这个工具最早只做「Markdown 转 Word」时的
+         名字，早就名不副实了 —— 现在它读文档、改文档、审阅、导出网页/PDF/Word、
+         复制源码、分享链接，Word 只是其中一个出口。
+         而且外壳侧栏已经写了「Markdown 工作台」，这里再顶一个别的名字，
+         用户会以为是两个东西。统一成同一个叫法。 -->
+    <div class="brand">Markdown<span class="dot">·</span>工作台</div>
 
     <div class="tools">
       <span class="group open-group">

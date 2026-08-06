@@ -153,12 +153,16 @@ export function rebuildToolbar(MDW) {
     },
   ];
 
-  /* copyBtn **不 stash** —— 它是常驻按钮「复制文档」，见上面的说明。
-     改一下文案：原来叫「复制 HTML」，那是技术说法；用户关心的是
-     「把这篇文档复制走，粘到别处还是这个样子」。 */
+  /* copyBtn **不 stash** —— 它是常驻按钮，用户明确要过这个入口。
+
+     文案叫「复制源码」而不是「复制文档」：它复制的是 Markdown 原文。
+     这个区别要说清楚 —— 叫「复制文档」会让人以为是带排版的富文本，
+     粘到 Word 里发现只有一堆 # 和 * 就会觉得坏了。
+     而飞书、WPS 粘 Markdown 会自动渲染，所以对它们来说效果就是"带排版"。
+     Word 不认 Markdown，那条路走「导出 → Word」（真正的 Open XML 排版）。 */
   if (copyBtn) {
-    copyBtn.textContent = '复制文档';
-    copyBtn.title = '复制整篇（带排版）· 粘到飞书云文档、WPS、Word 里就是渲染后的样子';
+    copyBtn.textContent = '复制源码';
+    copyBtn.title = '复制 Markdown 原文 · 粘到飞书云文档、WPS 会自动排版（Word 请用「导出 → Word」）';
   }
   stash(printBtn, attic);
   stash(srcBtn, attic);

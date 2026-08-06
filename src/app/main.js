@@ -1194,25 +1194,10 @@ on('copyImage', async (d, meta) => {
   } catch (e) { done(false); }
 });
 
-/* 富文本复制（「复制文档」按钮）。和上面 copyImage 同一个道理：
-   能力页嵌在外壳里时常常不被认为"有焦点"，clipboard.write 会被拒 ——
-   顶层文档可以，所以由外壳代写。
-   关键是必须写 **text/html** 这个 flavour，飞书 / WPS / Word 才会认作富文本；
-   只写 text/plain 的话粘出来是一堆尖括号。 */
-on('copyRich', async (d, meta) => {
-  const done = (ok) => {
-    if (meta.source && d.id) meta.source.postMessage({ ns: 'docsmith', type: 'copyRichResult', id: d.id, ok }, '*');
-  };
-  try {
-    if (!navigator.clipboard?.write || !window.ClipboardItem) { done(false); return; }
-    window.focus();
-    await navigator.clipboard.write([new ClipboardItem({
-      'text/html': new Blob([d.html || ''], { type: 'text/html' }),
-      'text/plain': new Blob([d.plain || ''], { type: 'text/plain' })
-    })]);
-    done(true);
-  } catch (e) { done(false); }
-});
+/* 这里原来有一个 copyRich 处理器：能力页把 HTML 发过来，外壳代写剪贴板
+   （因为顶层文档才有焦点）。现在不需要了 —— 复制改成只写 Markdown 源码，
+   走能力页自己的 execCommand 那条路即可，不依赖 clipboard 权限、也不需要焦点。
+   为什么放弃 HTML 富文本复制，见 workspace.js 的 copyMarkdown() 上面那段。 */
 
 /* ============================================ 整页 / 侧边栏 */
 

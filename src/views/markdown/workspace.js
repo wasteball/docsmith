@@ -1,6 +1,6 @@
 
 /* ==========================================================================
-   MD Word Workspace · application logic (reading surface is the editing surface)
+   Docsmith · Markdown 工作台 —— 应用逻辑（阅读界面就是编辑界面）
    Globals via CDN: marked, hljs, mermaid, katex, DOMPurify, docx
    ========================================================================== */
 (function () {
@@ -1261,290 +1261,51 @@
     }, refresh);
   }
 
-  /* ---------- 复制成「带排版的文档」 -------------------------------------
-     用户要的是：点一下，粘进飞书云文档 / WPS 在线文档，**看到的就是渲染后的
-     样子**（标题是标题、表格是表格、代码块有底色），不是一堆尖括号。
+  /* ---------- 复制 Markdown 源码 -----------------------------------------
+     用户要的是：点一下，粘进飞书云文档 / WPS 在线文档，就是渲染好的效果。
 
-     为什么原来的做法不行（两个独立的毛病，都得修）：
+     ⚠ 这里绕了一大圈才找到对的做法，把过程记下来，别再走回头路：
 
-       1. 原来走 `navigator.clipboard.writeText(html)` —— writeText 只写
-          **text/plain**。粘出来是字面的 `<h1>标题</h1>`。
-          要让接收方认作富文本，必须用 `ClipboardItem` 写 **text/html** 这个
-          flavour（同时带一份 text/plain 兜底，粘进纯文本编辑器时才不是空的）。
+     第一版：往剪贴板写 text/html，并把计算样式抄成内联 style。
+       结果 WPS 好了、飞书完全没排版。原因是飞书是**自研 Block 结构化编辑器**，
+       内部用专属 JSON 存标题/表格/代码，不是通用 HTML 富文本引擎 ——
+       粘贴时只保留最基础的标签，自定义样式被整片过滤掉。
 
-       2. cleanDocHtml() 产出的 HTML 只带 class，样式全在外部样式表里。
-          而飞书、WPS、Word、公众号编辑器**一律丢掉外部 CSS 和 <style>**，
-          只认元素上的**内联 style**。所以粘过去表格没边框、代码块没底色。
-          → inlineStyles() 把关键的计算样式抄到每个元素的 style 上。
+     第二版：既然飞书会把纯文本按 Markdown 解析，那就 text/html 和
+       text/plain 各给一份，让两边各取所需。**这条路从根上不成立** ——
+       富文本编辑器在两种格式都存在时**一律优先取 text/html**（实测：
+       派一个同时带两种格式的 paste 事件，接收方拿到的是 html 那份）。
+       所以飞书压根不会去看我们准备的 Markdown。
 
-     只抄"排版和识别度必需"的那些属性，不抄全部 computed style ——
-     全抄的话每个标签都会背上几十条声明，HTML 体积翻十倍，而且把
-     接收方文档自己的字体也一起盖掉（粘进去和周围内容格格不入）。 */
+     现在：**只复制 Markdown 源码**（只写 text/plain）。
+       飞书和 WPS 都支持粘贴 Markdown 自动渲染，用户已实测确认。
+       没有 text/html，接收方就只能走 Markdown 那条路 —— 这才是可靠的。
+       代价是 Word 不认 Markdown，但那本来就该走「导出 → Word」
+       （已经有那个功能，而且是真正的 Open XML 排版，比粘贴强得多）。
 
-  /* 每类元素抄哪些属性。宁少勿多：多抄一条，就多一分和接收方样式打架的机会。
-
-     刻意**不抄**的两样，都是踩过才知道的：
-       · font-family —— 抄过去会把飞书/WPS 文档自己的字体整段盖掉，粘进去
-         那一块和上下文格格不入。让它继承接收方的字体才对。
-       · width（表格）—— 抄的是「在我这儿量出来的像素宽」（比如 798px），
-         粘到别人窄一点的文档里就横向溢出。留空让它自适应。 */
-  var COPY_PROPS = {
-    common: ['color', 'background-color', 'font-weight', 'font-style', 'text-align',
-             'text-decoration-line', 'font-size', 'line-height'],
-    table: ['border-collapse'],
-    cell: ['border-top', 'border-right', 'border-bottom', 'border-left', 'padding',
-           'background-color', 'text-align', 'vertical-align'],
-    /* border-left 留着（引用块那条竖条靠它）；`border` 简写去掉 ——
-       它在没有边框的元素上会展开成 `0px none rgb(...)`，纯噪音。 */
-    block: ['margin-top', 'margin-bottom', 'padding', 'background-color',
-            'border-radius', 'border-left', 'white-space', 'overflow-wrap'],
-    /* 代码要保留等宽字体 —— 那是代码的识别特征，属于内容语义的一部分，
-       和上面「不抄 font-family」的理由不冲突。 */
-    code: ['font-family', 'font-size', 'background-color', 'color', 'padding',
-           'border-radius', 'white-space']
-  };
-
-  function pickStyles(src, dst, props) {
-    var cs = window.getComputedStyle(src);
-    var out = [];
-    for (var i = 0; i < props.length; i++) {
-      var v = cs.getPropertyValue(props[i]);
-      if (!v) continue;
-      /* 默认值不用抄：none / normal / 0px 这些抄过去只是噪音，
-         而且可能把接收方的合理默认覆盖掉。
-         `start` 是 text-align 的默认值 —— 它会出现在**每一个**元素上，
-         抄过去等于给整篇文档硬编码对齐方式，还白涨一截体积。
-         真正需要居中的（数学公式块）值是 center，照样抄得到。 */
-      if (v === 'none' || v === 'normal' || v === 'auto' || v === '0px' ||
-          v === 'start' || v === 'rgba(0, 0, 0, 0)' || v === 'transparent' ||
-          v === '400' || v === 'currentcolor') continue;
-      /* ⚠ 边框的简写值长这样：`0px none rgb(43, 47, 54)` —— 它**不等于**
-         上面任何一个字面量，所以会被抄过去。而它的意思就是"没有边框"，
-         纯属噪音：实测一份 29KB 的文档里，光是这种 `0px none rgb(...)`
-         就占掉几十 KB（每个 td 抄四条、每个 p 抄两条）。
-         凡是以 `0px none` 开头的一律跳过。 */
-      if (v.indexOf('0px none') === 0) continue;
-      out.push(props[i] + ':' + v);
-    }
-    if (out.length) {
-      var prev = dst.getAttribute('style');
-      dst.setAttribute('style', (prev ? prev + ';' : '') + out.join(';'));
-    }
-  }
-
-  /* 哪些元素**值得**内联样式。
-
-     为什么要挑：一份 63KB 的手册渲染出来有近 3000 个节点，
-     给每一个都抄一串 style，产出的 HTML 有 566KB —— 19 倍膨胀。
-     而其中绝大多数是 <span>（代码高亮的 token）之类会**自然继承**父元素样式的
-     行内元素，抄了纯属浪费；体积大到一定程度还会拖慢剪贴板写入。
-
-     只有「样式不能靠继承得到」的那些才需要抄：
-       · 块级容器（标题、段落、引用、代码块…）—— 间距、底色、边框
-       · 表格和单元格 —— 边框是表格的命，接收方一定没有
-       · 加粗/斜体/删除线/行内代码 —— 它们的样式来自 class 而非标签语义
-     其余（span、a、em 之类）跳过，让它们继承。 */
-  /* TR / THEAD / TBODY 不在里面：行的视觉完全由 td/th 的边框和底色决定，
-     给它们抄样式是纯浪费（实测 tr 白占 7.8KB）。 */
-  var STYLE_WORTHY = /^(H[1-6]|P|LI|UL|OL|BLOCKQUOTE|PRE|CODE|TABLE|TD|TH|HR|DIV|DETAILS|SUMMARY|STRONG|B|EM|I|DEL|S|MARK)$/;
+     一处替换：mermaid 围栏换成图片链接。用户实测飞书和 WPS 都把
+     ```mermaid 当普通代码块展示（一堆 flowchart TD 源码），图没了。
+     换成 Markdown 的图片语法 + data URI，两边就都能看到图。 */
 
   /**
-   * 把 live DOM 的计算样式抄进克隆体的内联 style。
-   * @param live 页面上真实渲染着的那棵树（有样式）
-   * @param copy 要发出去的克隆体（结构相同，但没样式）
+   * 拿来复制的 Markdown 源码。
+   * 以文档原文为准（不是从渲染结果反推），只把图表换成图片。
    */
-  function inlineStyles(live, copy) {
-    var a = live.querySelectorAll('*'), b = copy.querySelectorAll('*');
-    /* 两棵树是 cloneNode 出来的，节点顺序一一对应。长度不等说明克隆之后
-       又动过结构（cleanDocHtml 会拆 .blk 包裹层）—— 那就只能放弃内联，
-       宁可样式差一点，也不能把样式抄到错的元素上（那比没样式更难看）。 */
-    if (a.length !== b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      var el = a[i], to = b[i], tag = el.tagName;
-      /* 不在白名单里的（span、a、em…）跳过 —— 它们继承父元素就够了。
-         见 STYLE_WORTHY 上面那段：不挑的话 63KB 的文档会产出 566KB 的 HTML。 */
-      if (!STYLE_WORTHY.test(tag)) continue;
-      if (tag === 'TABLE') { pickStyles(el, to, COPY_PROPS.table); continue; }
-      if (tag === 'TD' || tag === 'TH') { pickStyles(el, to, COPY_PROPS.cell); continue; }
-      if (tag === 'PRE' || tag === 'CODE') { pickStyles(el, to, COPY_PROPS.code); continue; }
-      if (/^(H[1-6]|P|LI|BLOCKQUOTE|DIV|UL|OL|HR|DETAILS|SUMMARY)$/.test(tag)) {
-        pickStyles(el, to, COPY_PROPS.common.concat(COPY_PROPS.block));
-        continue;
-      }
-      pickStyles(el, to, COPY_PROPS.common);
-    }
-    return true;
-  }
-
-  /** 生成「可以直接粘进富文本编辑器」的一段 HTML。 */
-  function richDocHtml() {
-    var live = preview;
-    var copy = live.cloneNode(true);
-    /* 先抄样式（这时两棵树结构还完全一致），再清脚手架 —— 顺序反了
-       inlineStyles 就会因为长度不等而放弃。 */
-    inlineStyles(live, copy);
-
-    // 下面这一段和 cleanDocHtml 同样的清理，只是作用在已经带样式的克隆体上
-    copy.querySelectorAll('.src-box,.blk-new,.blk-add-end,.doc-blank,.chg-del,.chg-diff').forEach(function (n) { n.remove(); });
-    copy.querySelectorAll('[data-chg]').forEach(function (n) { n.removeAttribute('data-chg'); });
-    copy.querySelectorAll('.rich').forEach(function (n) { n.classList.remove('rich'); });
-    copy.querySelectorAll('.find-match-block,.find-current-block').forEach(function (n) { n.classList.remove('find-match-block', 'find-current-block'); });
-    copy.querySelectorAll('.blk').forEach(function (b) {
-      var p = b.parentNode; while (b.firstChild) p.insertBefore(b.firstChild, b); p.removeChild(b);
-    });
-    copy.querySelectorAll('[contenteditable]').forEach(function (n) { n.removeAttribute('contenteditable'); });
-    copy.querySelectorAll('.cell-editing').forEach(function (n) { n.classList.remove('cell-editing'); });
-    copy.querySelectorAll('input[type=checkbox]').forEach(function (n) { n.disabled = true; n.removeAttribute('data-task'); });
-    /* 工具栏那些按钮别跟着粘过去 —— 它们在文档里没有意义。
-       ⚠ 普通代码块的 Copy 按钮是**直接**放在 .cb-head 里的（没有 .cb-actions
-       包一层，见 codeBlock()），所以必须显式点名 button 和 .copy-btn，
-       只删 .cb-actions 会漏掉它 —— 粘出来代码块头上挂着一颗按钮。 */
-    copy.querySelectorAll('.cb-actions,.mm-tools,.h-anchor,.blk-handle,.copy-btn,.mm-toggle,.mm-copy,.cb-head button').forEach(function (n) { n.remove(); });
-
-    /* 图表是 SVG。飞书、WPS 对内联 SVG 的支持不一致（有的直接丢掉），
-       所以给每张图补一个 data URI 的 <img> 兜底 —— 认 SVG 的用 SVG，
-       不认的至少能看到图，不会变成一片空白。 */
-    copy.querySelectorAll('.mermaid-render svg').forEach(function (svg) {
-      try {
-        var d = svgDims(svg);
-        var s = new XMLSerializer().serializeToString(svg);
-        var img = document.createElement('img');
-        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
-        /* 必须给宽高。不给的话 SVG 会按它自己的固有尺寸铺开 —— 一张
-           3000px 宽的流程图粘进飞书就撑爆版面（实测：图溢出到容器外面去了）。
-           写成 width:100% + auto 高度，让它跟着接收方的栏宽走。 */
-        img.setAttribute('width', Math.round(d.w));
-        img.setAttribute('height', Math.round(d.h));
-        img.setAttribute('style', 'max-width:100%;height:auto;display:block');
-        svg.parentNode.replaceChild(img, svg);
-      } catch (e) { /* 转不了就留着原来的 SVG */ }
-    });
-    /* 图表容器在页面上是个固定高度的可拖画布（.mm-viewport 带 height 和
-       overflow:hidden）。那套东西粘过去毫无意义，还会把图裁掉一半 ——
-       把画布的限制拆掉，只留图本身。 */
-    copy.querySelectorAll('.mm-viewport,.mm-stage').forEach(function (n) {
-      n.removeAttribute('style');
-      n.setAttribute('style', 'overflow:visible;height:auto');
-    });
-    /* 源码视图那份 <pre> 在图表块里是隐藏的，粘过去会变成重复内容 */
-    copy.querySelectorAll('.mermaid-source').forEach(function (n) { n.remove(); });
-
-    /* 直接返回内容，**不**包一层带 font-family 的 div ——
-       让粘进去的内容继承飞书/WPS 文档自己的字体，才不会显得像块补丁。
-       版心宽度（max-width:860px）同理不能带过去，会挤成一条。 */
-    return copy.innerHTML;
-  }
-
-  /**
-   * 用「选中 + execCommand('copy')」复制富文本，并**精确控制两种格式**。
-   *
-   * 这是比 clipboard API **更可靠**的一条路，不是退化方案：
-   *   · 不需要 clipboard-write 权限，也不要求文档"有焦点"。
-   *     clipboard.write 在嵌入文档 / 侧边栏里经常被拒（NotAllowedError：
-   *     Write permission denied），而这条路照样能成。
-   *
-   * ⚠ 但**不能只靠选区**：浏览器会把选区里的可见文字当成 text/plain，
-   * 那样飞书拿到的是拍平的纯文字（没有 # 和 |），照样没排版。
-   * 所以这里挂一个一次性的 copy 事件监听器，在事件里用
-   * `clipboardData.setData` 把两种格式各自写准：
-   *     text/html  → 带内联样式的 HTML（WPS / Word / 公众号 认这个）
-   *     text/plain → Markdown 原文（飞书认这个，见 markdownForPlain 的说明）
-   * 再 preventDefault，阻止浏览器用选区里的默认内容覆盖掉我们设的值。
-   *
-   * 选区仍然要做：没有非空选区，execCommand('copy') 在多数浏览器里
-   * 直接返回 false，copy 事件也不会触发。选区在这里的作用是"把闸门打开"。
-   *
-   * @returns {boolean} 成功与否
-   */
-  function copyViaSelection(html, plain) {
-    var host = document.createElement('div');
-    /* contenteditable 让它在某些浏览器里更容易被完整选中；
-       白底黑字是为了避免继承到深色主题的颜色（复制出来的 html 里
-       已经带内联样式了，这里只是保证选区本身正常）。 */
-    host.setAttribute('contenteditable', 'true');
-    host.setAttribute('style',
-      'position:fixed;left:-99999px;top:0;width:800px;max-height:100vh;' +
-      'overflow:hidden;opacity:0;pointer-events:none;background:#fff;color:#000;' +
-      'white-space:normal;-webkit-user-select:text;user-select:text');
-    host.innerHTML = html;
-    document.body.appendChild(host);
-
-    var sel = window.getSelection();
-    var saved = [];
-    /* 用户可能正选着东西（比如刚划了一段字）。复制完要还回去，
-       不然他会发现自己的选区莫名其妙没了。 */
-    for (var i = 0; i < sel.rangeCount; i++) saved.push(sel.getRangeAt(i));
-
-    /* 一次性的 copy 监听器：把两种格式各自写准，再 preventDefault
-       阻止浏览器用选区的默认内容覆盖。用 capture 阶段抢在别人之前。 */
-    var fired = false;
-    var onCopy = function (e) {
-      fired = true;
-      try {
-        var dt = e.clipboardData;
-        if (dt) {
-          dt.setData('text/html', html);
-          dt.setData('text/plain', plain || '');
-          e.preventDefault();
-        }
-      } catch (err) { /* 设不进去就让浏览器用默认行为，起码还有内容 */ }
-    };
-    document.addEventListener('copy', onCopy, true);
-
-    var okFlag = false;
-    try {
-      var range = document.createRange();
-      range.selectNodeContents(host);
-      sel.removeAllRanges();
-      sel.addRange(range);
-      okFlag = document.execCommand('copy');
-      /* execCommand 返回 true 但事件没触发，说明什么都没真的写进去 ——
-         当成失败，让调用方去走 clipboard API 那条路。 */
-      if (!fired) okFlag = false;
-    } catch (e) {
-      okFlag = false;
-    } finally {
-      document.removeEventListener('copy', onCopy, true);
-      sel.removeAllRanges();
-      for (var j = 0; j < saved.length; j++) { try { sel.addRange(saved[j]); } catch (e) {} }
-      document.body.removeChild(host);
-    }
-    return okFlag;
-  }
-
-  /**
-   * 给 text/plain 用的那一份。**放 Markdown 原文，不放拍平的纯文字。**
-   *
-   * 为什么这么定（实测出来的，不是猜的）：
-   * 飞书云文档是自研的 Block 结构化编辑器，不是通用 HTML 富文本引擎。
-   * 它粘贴时只保留最基础的标签，我们辛苦抄进去的内联样式会被整片过滤掉 ——
-   * 所以 text/html 那条路在飞书上基本无效（WPS 反而认得很好）。
-   * 但飞书**会把粘进来的纯文本按 Markdown 解析**：# 变标题、| 变表格、
-   * ** 变加粗。用户实测「粘 Markdown 原文，飞书是有排版的」。
-   *
-   * 于是策略变成「两份都给对的东西」：
-   *   · text/html  → WPS / Word / 公众号 用，带内联样式
-   *   · text/plain → 飞书用，给 Markdown 原文
-   * 谁认哪种谁取哪种，不用用户操心，也不用加第二颗按钮。
-   *
-   * 一处替换：mermaid 代码块换成图片链接。用户实测飞书和 WPS 都把
-   * ```mermaid 当普通代码块展示（一堆 flowchart TD 源码），图没了。
-   * 这里换成 Markdown 的图片语法 + data URI，两边就都能看到图。
-   */
-  function markdownForPlain() {
+  function markdownForCopy() {
     var d = curDoc();
     var src = (d && d.text != null) ? d.text : '';
-    if (!src) return preview.innerText || preview.textContent || '';
+    if (!src) return '';
 
     /* 把每个 mermaid 围栏替换成 ![图表](data:image/svg+xml,…)。
        按出现顺序和页面上渲染好的 SVG 一一对应 —— 两者顺序天然一致
-       （renderMermaid 是按 DOM 顺序逐个渲染的）。 */
+       （renderMermaid 是按 DOM 顺序逐个渲染的）。
+       没渲染出来的那些保留原源码，宁可显示成代码块也别把内容弄丢。 */
     var svgs = preview.querySelectorAll('.mermaid-render svg');
     var i = 0;
     return src.replace(/(^|\n)[ \t]*(`{3,}|~{3,})[ \t]*mermaid[ \t]*\n([\s\S]*?)\n[ \t]*\2[ \t]*(?=\n|$)/gi,
       function (whole, lead) {
         var svg = svgs[i++];
-        if (!svg) return whole;                 // 没渲染出来就留着源码，别把内容弄没
+        if (!svg) return whole;
         try {
           var s = new XMLSerializer().serializeToString(svg);
           return lead + '![图表](data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s) + ')';
@@ -1552,86 +1313,82 @@
       });
   }
 
-  /** 富文本复制：往剪贴板同时写 text/html 和 text/plain。 */
-  function copyRich(btn) {
+  /**
+   * 复制 Markdown 源码到剪贴板。
+   *
+   * 只写 text/plain。走 execCommand 那条路而不是 clipboard.writeText —— 后者
+   * 在合并进外壳的文档里会被拒（NotAllowedError: Write permission denied，
+   * 实测能力页和外壳两次都拒）。execCommand 从一个真实选区复制，
+   * 不需要 clipboard 权限、也不要求文档有焦点。
+   */
+  function copyMarkdown(btn) {
     if (!currentId) { toast('先打开一份文档', 'err'); return; }
-    var html, plain;
-    try {
-      html = richDocHtml();
-      plain = markdownForPlain();
-    } catch (e) {
-      toast('生成内容失败：' + ((e && e.message) || '未知错误'), 'err');
-      return;
-    }
+    var md;
+    try { md = markdownForCopy(); }
+    catch (e) { toast('生成内容失败：' + ((e && e.message) || '未知错误'), 'err'); return; }
+    if (!md) { toast('这篇文档是空的', 'err'); return; }
+
     var ok = function () {
       if (btn) flashBtn(btn, '已复制');
-      toast('已复制 · 去飞书 / WPS / Word 里直接粘贴即可', 'ok');
+      toast('已复制 · 去飞书 / WPS 直接粘贴，会自动排版', 'ok');
     };
-
-    /* ⚠ 兜底**绝对不能**是 writeText(html)。
-
-       原来就是那么写的，结果用户粘到飞书里得到的是**纯文字**（标题不是标题、
-       表格变成制表符分隔的一行行字）—— 因为 writeText 写的是 text/plain，
-       接收方拿到的就是"一大坨字符串"，而那坨字符串恰好是 566KB 的 HTML 源码。
-       用户看到的现象：「粘贴到飞书云文档只是把文字粘贴过去了，效果完全没有」。
-
-       正确的兜底是 execCommand('copy') 那条老路：它从**一个真实的 DOM 选区**
-       复制，浏览器会自动同时放 text/html 和 text/plain 两种格式进剪贴板 ——
-       正是富文本粘贴需要的。这条路不依赖 clipboard 权限，也不要求文档有焦点，
-       在 clipboard API 被拒的场合反而更可靠。 */
-    var fallback = function () {
-      /* 走到这儿说明选区路和 clipboard API 都没成（很罕见）。
-         至少把**纯文字**放进去 —— 注意是 plain 不是 html：
-         写 html 的话用户粘到飞书会得到一坨 566KB 的源码，那比没复制更糟，
-         而且他会以为功能坏了（这正是修这个 bug 的起因）。 */
-      copyText(plain, btn);
-      toast('这个环境不允许富文本复制，已复制纯文字', 'err', 4200);
-    };
-
-    /* 先走选区那条路 —— 它不需要 clipboard 权限、不要求文档有焦点，
-       在这个环境里成功率最高（实测 clipboard.write 在合并进外壳的文档里
-       会直接被拒：NotAllowedError: Write permission denied）。
-       成了就结束，省掉后面所有分支。 */
-    if (copyViaSelection(html, plain)) { ok(); return; }
-
-    /* 选区路没成（极少数浏览器禁了 execCommand）→ 再试 clipboard API。 */
-    if (!(navigator.clipboard && navigator.clipboard.write && window.ClipboardItem)) { fallback(); return; }
-    try { window.focus(); } catch (e) {}
-    var item;
-    try {
-      item = new ClipboardItem({
-        'text/html': new Blob([html], { type: 'text/html' }),
-        'text/plain': new Blob([plain], { type: 'text/plain' })
-      });
-    } catch (e) { fallback(); return; }
-
-    navigator.clipboard.write([item]).then(ok, function () {
-      /* 嵌在外壳里时本文档常常不被认为"有焦点"，clipboard.write 会被拒。
-         和复制图片同一个套路：交给外壳那一层去写（它是顶层文档）。 */
-      if (IN_SHELL) {
-        shellCopyRich(html, plain, function (done) { if (done) ok(); else fallback(); });
-        return;
-      }
-      fallback();
-    });
+    if (copyPlainViaSelection(md)) { ok(); return; }
+    /* 退路：clipboard API。它常被拒，但万一 execCommand 被禁用了还有这一条。 */
+    copyText(md, btn);
+    toast('已复制 · 去飞书 / WPS 直接粘贴，会自动排版', 'ok');
   }
 
-  /** 请外壳代写剪贴板（顶层文档才有焦点，见 copyDiagramImage 那段的说明）。 */
-  var _richReqs = {};
-  function shellCopyRich(html, plain, cb) {
-    var id = 'rc' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    var fired = false, finish = function (ok) { if (fired) return; fired = true; delete _richReqs[id]; cb(!!ok); };
-    _richReqs[id] = finish;
+  /**
+   * 用「选中 + execCommand('copy')」写纯文本。
+   *
+   * 为什么不直接 clipboard.writeText：见 copyMarkdown 的说明（会被拒）。
+   *
+   * ⚠ 必须在 copy 事件里 setData('text/plain', md) 再 preventDefault ——
+   * 光靠选区的话，浏览器会把 textarea 里的内容当 text/plain（这里恰好一样，
+   * 但显式设更稳），而且**绝对不能让 text/html 也进去**：
+   * 富文本编辑器在两种格式都有时一律优先取 html，那样飞书就又看不到
+   * Markdown 了（这正是上一版失败的原因）。
+   */
+  function copyPlainViaSelection(text) {
+    /* 用 textarea 而不是 contenteditable div：textarea 里的选区天然只有
+       纯文本，不会带出任何 HTML 结构。 */
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('style',
+      'position:fixed;left:-99999px;top:0;width:600px;height:200px;opacity:0;' +
+      'pointer-events:none;white-space:pre');
+    document.body.appendChild(ta);
+
+    var fired = false;
+    var onCopy = function (e) {
+      fired = true;
+      try {
+        var dt = e.clipboardData;
+        if (dt) {
+          dt.setData('text/plain', text);
+          /* 显式清掉 html：有些浏览器会顺手放一份 text/html 进去，
+             而那会让飞书优先走 HTML 那条路，Markdown 就白准备了。 */
+          try { dt.setData('text/html', ''); } catch (x) {}
+          e.preventDefault();
+        }
+      } catch (err) { /* 设不进去就用默认行为 */ }
+    };
+    document.addEventListener('copy', onCopy, true);
+
+    var okFlag = false;
     try {
-      window.parent.postMessage({ ns: BUS_NS, type: 'copyRich', id: id, html: html, plain: plain }, '*');
-    } catch (e) { finish(false); return; }
-    setTimeout(function () { finish(false); }, 2500);
+      ta.focus();
+      ta.select();
+      okFlag = document.execCommand('copy');
+      if (!fired) okFlag = false;      // 事件没触发 = 什么都没真写进去
+    } catch (e) {
+      okFlag = false;
+    } finally {
+      document.removeEventListener('copy', onCopy, true);
+      document.body.removeChild(ta);
+    }
+    return okFlag;
   }
-  window.addEventListener('message', function (e) {
-    var d = e.data;
-    if (!d || d.ns !== BUS_NS || d.type !== 'copyRichResult') return;
-    if (_richReqs[d.id]) _richReqs[d.id](d.ok);
-  });
 
   /* ---------- export / print / copy ---------------------------------- */
   /* 导出的网页里内嵌这一段。它要做三件事，都要在**离线单文件**里成立：
@@ -2470,7 +2227,7 @@
   }
   function wordDocumentOptions(ctx, children) {
     var options = {
-      creator: 'MD Word Workspace', title: currentName(), description: 'Exported from Markdown as an editable Word document',
+      creator: 'Docsmith · 文匠', title: currentName(), description: 'Exported from Markdown as an editable Word document',
       /* paragraph 里的 alignment 必须写死成左对齐。
          不写的话 docx 不产出 <w:jc>，Word 就去问收件人自己的「正文」样式 ——
          中文版 Word 的「正文」默认常常是「两端对齐」。段落被继承成两端对齐后，
@@ -5194,10 +4951,9 @@
     $('#shareModal .modal-close').addEventListener('click', function () { $('#shareModal').classList.remove('open'); });
     $('#shareModal').addEventListener('click', function (e) { if (e.target === this) this.classList.remove('open'); });
 
-    /* 「复制文档」= 复制成**带排版的**文档，用户粘进飞书 / WPS 就是渲染后的样子。
-       原来这里是 copyText(cleanDocHtml())，只写 text/plain，粘出来是一堆
-       尖括号 —— 见 copyRich() 上面那段说明。 */
-    $('#copyBtn').addEventListener('click', function () { copyRich(this); });
+    /* 「复制源码」= 复制 Markdown 原文。飞书和 WPS 粘进去都会自动渲染。
+       为什么不复制 HTML：见 copyMarkdown() 上面那段（绕过一大圈的记录）。 */
+    $('#copyBtn').addEventListener('click', function () { copyMarkdown(this); });
     /* ⚠ 这三个按钮不一定还在 DOM 里，所以一律用 on() 而不是直接 addEventListener。
 
        #downloadBtn 已经被 export-menu.js 的 mountExportMenu() 用 replaceChild
