@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-accent="blue" data-view-id="markdown">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Markdown 工作台 · Docsmith</title>
+
+<!-- 必须排在最前：抢在第一帧之前套用主题，否则暗色下会闪一下白 -->
+<script src="../../core/appearance-global.js"></script>
+
+<link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+<link rel="stylesheet" href="../../vendor/hljs-light.css" id="hljs-light">
+<link rel="stylesheet" href="../../vendor/hljs-dark.css" id="hljs-dark">
+<link rel="stylesheet" href="../../core/tokens.css">
+<link rel="stylesheet" href="../../core/buttons.css">
+<link rel="stylesheet" href="./workspace.css">
+<!-- 文档本体样式。单独一份，因为「导出网页」要把它原样塞进单文件里 —— 见 doc.css 开头的说明 -->
+<link rel="stylesheet" href="./doc.css">
+<link rel="stylesheet" href="./revision.css">
+<link rel="stylesheet" href="../../diagrams/diagrams.css">
+<style id="customCss"></style>
+</head>
+<!-- data-ds-root 写在标签上，不靠 JS 补：整页布局（flex + overflow:hidden）
+     现在挂在这个属性上，等 workspace.js 跑起来才加就会闪一帧没排版的样子。
+     合并进外壳后，这个属性由外壳标在能力容器上，作用完全一样。 -->
+<body data-ds-root>
+
+  <header class="topbar">
+    <button class="icon-btn" id="sideToggle" title="收起 / 展开侧栏 (Ctrl/⌘ + B)" aria-label="收起 / 展开侧栏" type="button">☰</button>
+    <div class="brand">MD<span class="dot">·</span>Word</div>
+
+    <div class="tools">
+      <span class="group open-group">
+        <span class="split">
+          <button class="btn primary split-main" id="openBtn" type="button" title="打开 Markdown 文件">打开</button>
+          <button class="btn primary split-caret" id="openCaret" type="button" aria-haspopup="menu" aria-expanded="false" title="更多打开方式">▾</button>
+        </span>
+        <div class="menu" id="openMenu" role="menu">
+          <button class="menu-item" data-open="file" role="menuitem" type="button"><span class="mi-ico">📄</span>打开文件…<span class="mi-key">⌘O</span></button>
+          <button class="menu-item" data-open="folder" role="menuitem" type="button"><span class="mi-ico">📁</span>打开文件夹…<span class="mi-key">⌘⇧O</span></button>
+          <div class="menu-sep"></div>
+          <button class="menu-item" data-open="url" role="menuitem" type="button"><span class="mi-ico">🔗</span>从链接加载…</button>
+          <button class="menu-item" data-open="new" role="menuitem" type="button"><span class="mi-ico">✎</span>新建文档</button>
+        </div>
+        <input type="file" id="folderInput" webkitdirectory directory multiple>
+        <input type="file" id="fileInput" accept=".md,.mkd,.mdx,.markdown,.txt,text/markdown,text/plain" multiple>
+      </span>
+      <span class="group">
+        <button class="btn" id="editBtn" type="button" title="在阅读界面上直接编辑（⌘/Ctrl + E）">编辑</button>
+        <button class="icon-btn" id="findBtn" type="button" title="查找 / 替换（⌘/Ctrl + F / H）" aria-label="查找和替换">⌕</button>
+        <button class="btn edit-only" id="srcBtn" type="button" title="切换整篇 Markdown 源码（⌘/Ctrl + ⇧ + E）">&lt;/&gt;</button>
+        <button class="btn edit-only" id="undoBtn" type="button" title="撤销（⌘/Ctrl + Z）">↺</button>
+        <button class="btn edit-only" id="redoBtn" type="button" title="重做（⌘/Ctrl + ⇧ + Z）">↻</button>
+        <span class="chg-wrap">
+          <button class="btn" id="chgBtn" type="button" aria-haspopup="true" aria-expanded="false" title="未保存的改动"><span class="cg-n">0</span> 处改动</button>
+          <div class="chg-panel" id="chgPanel"></div>
+        </span>
+        <button class="btn" id="saveBtn" type="button" title="保存 Markdown 到本地文件（⌘/Ctrl + S）">保存</button>
+        <button class="btn" id="settingsBtn" type="button" title="阅读设置">Aa</button>
+        <button class="btn" id="shareBtn" type="button">分享</button>
+      </span>
+      <span class="group">
+        <button class="btn" id="copyBtn" type="button">复制 HTML</button>
+        <button class="btn" id="printBtn" type="button">打印 / PDF</button>
+        <button class="btn primary" id="downloadBtn" type="button" title="导出 Microsoft Word 文档（.docx）">导出</button>
+      </span>
+    </div>
+
+    <div class="url-pop" id="urlPop">
+      <input id="urlInput" type="url" spellcheck="false" placeholder="https://… Markdown URL (GitHub blob auto-converts)">
+      <button class="btn primary" id="urlBtn" type="button">加载</button>
+    </div>
+
+    <div class="find-panel" id="findPanel" role="search" aria-label="查找和替换">
+      <div class="find-line">
+        <button class="find-tool find-expand" id="findReplaceToggle" type="button" title="显示替换（⌘/Ctrl + H）" aria-label="显示替换" aria-expanded="false">›</button>
+        <div class="find-input-wrap">
+          <input id="findInput" type="text" autocomplete="off" spellcheck="false" aria-label="查找" placeholder="查找">
+          <span class="find-count" id="findCount" aria-live="polite">0 / 0</span>
+        </div>
+        <button class="find-tool find-case" id="findCase" type="button" title="区分大小写" aria-label="区分大小写" aria-pressed="false">Aa</button>
+        <button class="find-tool" id="findPrev" type="button" title="上一处（Shift + Enter）" aria-label="上一处">↑</button>
+        <button class="find-tool" id="findNext" type="button" title="下一处（Enter）" aria-label="下一处">↓</button>
+        <button class="find-tool" id="findClose" type="button" title="关闭（Esc）" aria-label="关闭">×</button>
+      </div>
+      <div class="find-line find-replace-line">
+        <span aria-hidden="true"></span>
+        <input id="replaceInput" type="text" autocomplete="off" spellcheck="false" aria-label="替换为" placeholder="替换为">
+        <button class="find-action" id="replaceOne" type="button">替换</button>
+        <button class="find-action primary" id="replaceAll" type="button">全部替换</button>
+      </div>
+    </div>
+
+    <div class="settings-panel" id="settingsPanel">
+      <div class="set-row"><div class="set-label">主题</div><div class="seg-group">
+        <button class="seg-opt" data-set="theme" data-val="light" type="button">亮</button>
+        <button class="seg-opt" data-set="theme" data-val="dark" type="button">暗</button>
+        <button class="seg-opt" data-set="theme" data-val="auto" type="button">跟随系统</button></div></div>
+      <div class="set-row"><div class="set-label">正文字体</div><div class="seg-group">
+        <button class="seg-opt" data-set="font" data-val="serif" type="button">衬线</button>
+        <button class="seg-opt" data-set="font" data-val="sans" type="button">黑体</button></div></div>
+      <div class="set-row"><div class="set-label"><span>字号</span><span id="sizeVal">18px</span></div><input type="range" id="sizeRange" min="14" max="26" step="1"></div>
+      <div class="set-row"><div class="set-label"><span>阅读宽度</span><span id="widthVal">860px</span></div><input type="range" id="widthRange" min="560" max="1200" step="20"></div>
+      <div class="set-row"><div class="set-label">Auto-refresh URL</div><div class="seg-group">
+        <button class="seg-opt" data-set="refresh" data-val="0" type="button">关</button>
+        <button class="seg-opt" data-set="refresh" data-val="2000" type="button">2s</button>
+        <button class="seg-opt" data-set="refresh" data-val="5000" type="button">5s</button></div></div>
+      <div class="set-row"><label class="chk"><input type="checkbox" id="proxyChk"> Use CORS proxy for URLs <small>(when blocked)</small></label>
+        <div class="set-hint">Routes fetches through corsproxy.io only if a direct request is blocked. Off by default.</div></div>
+      <div class="set-row"><div class="set-label">自定义样式</div><textarea id="cssArea" spellcheck="false" placeholder=".doc h1 { color: teal }"></textarea>
+        <button class="btn" id="cssApply" type="button" style="margin-top:8px">应用</button>
+        <button class="btn" id="cssClear" type="button" style="margin-top:8px">清除</button>
+        <div class="set-hint">Saved CSS is re-applied on every visit. If the document ever renders blank, clear it here.</div></div>
+    </div>
+  </header>
+
+  <div class="main">
+    <button class="side-rail" id="sideRail" type="button" title="展开侧栏 (Ctrl/⌘ + B)">❯</button>
+    <aside class="sidebar" id="sidebar">
+      <div class="side-sec sec-files" data-sec="files">
+        <button class="side-head" type="button"><span class="side-caret">▾</span><span class="side-icon">🗂</span><span>文件</span><span class="side-count" id="filesCount">0</span></button>
+        <div class="side-body">
+          <div class="file-tools">
+            <span class="ft-search">
+              <span class="ft-ico" aria-hidden="true">⌕</span>
+              <input id="fileFilter" type="text" autocomplete="off" spellcheck="false" placeholder="搜索文件名…" aria-label="搜索已打开的文件">
+              <button class="ft-x" id="fileFilterClear" type="button" title="清空搜索" aria-label="清空搜索" hidden>✕</button>
+            </span>
+            <button class="ft-btn" id="filesCloseAll" type="button" title="关闭全部已打开的文件">全部关闭</button>
+          </div>
+          <div id="filesBody"><p class="side-empty">还没有打开文件</p></div>
+        </div>
+      </div>
+      <div class="side-sec sec-outline" data-sec="outline">
+        <button class="side-head" type="button"><span class="side-caret">▾</span><span class="side-icon">≡</span><span>大纲</span><span class="side-count" id="tocCount">0</span></button>
+        <div class="side-body"><div id="tocBody"><p class="toc-empty">还没有打开文档</p></div></div>
+      </div>
+    </aside>
+
+    <div class="content">
+      <section class="editor-pane">
+        <textarea id="editor" spellcheck="false" placeholder="整篇 Markdown 源码 — 退出源码视图时会回到你刚才所在的段落。"></textarea>
+      </section>
+      <section class="preview-pane" id="previewPane">
+        <div class="blk-handle" id="blkHandle">
+          <button type="button" data-h="add" title="在这里插入内容：表格 / 列表 / 图片 / 代码…" aria-label="插入内容">＋</button>
+          <button type="button" data-h="menu" title="这一块：上移 / 下移 / 复制 / 转换为… / 删除" aria-label="更多操作">⠿</button>
+        </div>
+        <button type="button" class="cell-h" id="rowH" title="这一行：上下插入 / 删除" aria-label="行操作">⋮</button>
+        <button type="button" class="cell-h" id="colH" title="这一列：左右插入 / 对齐 / 删除" aria-label="列操作">⋯</button>
+        <div class="sel-tools" id="selTools"></div>
+        <div class="link-box" id="linkBox"></div>
+        <div class="pop-menu" id="popMenu"></div>
+        <div class="empty-state">
+          <div class="empty-card">
+            <h2>把 Markdown 变成能看的、能交的、能发的</h2>
+            <p>拖一个 <code>.md</code> 文件进来，它立刻变得好读；改完可以导出成
+            Word、PDF、网页，或者生成一条链接发给别人。文件只在你的浏览器里处理。</p>
+
+            <div class="dropzone" id="dropZone" role="button" tabindex="0" aria-label="拖入或点击选择 Markdown 文件">
+              <div class="dropzone-icon">📄</div>
+              <div class="dropzone-main">把文件拖到这里</div>
+              <div class="dropzone-sub">或者点一下选 · 支持 <code>.md</code> <code>.markdown</code> <code>.mdx</code> · 整个文件夹也行</div>
+            </div>
+
+            <div class="empty-actions">
+              <button class="btn primary" data-action="file" type="button">选择文件</button>
+              <span class="empty-or">或者</span>
+              <button class="link-action" data-action="folder" type="button">打开文件夹</button>
+              <button class="link-action" data-action="url" type="button">从链接加载</button>
+              <button class="link-action" data-action="edit" type="button">新建一篇</button>
+            </div>
+
+            <p class="empty-hint">
+              不知道从哪找功能？按 <kbd>⌘</kbd><kbd>K</kbd>（Windows 是 <kbd>Ctrl</kbd><kbd>K</kbd>）搜一下就有。
+            </p>
+          </div>
+        </div>
+        <div class="chg-banner" id="chgBanner"></div>
+        <article class="doc" id="preview"></article>
+      </section>
+    </div>
+  </div>
+
+  <nav class="scroll-nav" id="scrollNav" aria-label="页面滚动">
+    <div class="chg-nav" id="chgNav" aria-label="改动导航">
+      <button type="button" data-cn="prev" title="上一处改动（Alt+↑）" aria-label="上一处改动">↑</button>
+      <button type="button" data-cn="list" id="chgNavCount" class="cn-count" title="点开改动清单">·</button>
+      <button type="button" data-cn="next" title="下一处改动（Alt+↓）" aria-label="下一处改动">↓</button>
+    </div>
+    <button class="sn-btn" id="scrollTopBtn" type="button" title="回到顶部" aria-label="回到顶部"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+    <button class="sn-btn" id="scrollBotBtn" type="button" title="去到底部" aria-label="去到底部"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg></button>
+  </nav>
+
+  <footer class="status"><span class="sdot"></span><span id="status">就绪</span></footer>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="modal" id="shareModal">
+    <div class="modal-card">
+      <div class="modal-head"><h3>生成分享链接</h3><button class="modal-close" type="button">✕</button></div>
+      <div id="shareBody"></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay"><div class="overlay-body" id="overlayBody"></div></div>
+
+  
+  
+  
+  
+  
+  
+
+  
+
+
+<!-- 第三方组件。某个文件没下下来也不会中断页面，对应功能会自动隐藏。
+
+     这里刻意**没有** mermaid.min.js：画流程图走 src/diagrams/ 自带的引擎
+     （下面 diagram-boot.js 把它装成 window.mermaid），完整版 mermaid 有 2MB+，
+     没必要随包附带。也刻意没有 html2pdf.bundle.min.js：导出 PDF 现在走
+     「在真标签页里打开导出的网页，再交给浏览器打印」，见 workspace.js 的 exportPdf()。
+     留着指向不存在文件的 <script> 只会每次打开都刷两条 404，
+     把真正该看见的报错埋进噪音里 —— 所以删掉，而不是留着当占位。 -->
+<script src="../../vendor/marked.min.js"></script>
+<script src="../../vendor/purify.min.js"></script>
+<script src="../../vendor/highlight.min.js"></script>
+<script src="../../vendor/katex/katex.min.js"></script>
+<script src="../../vendor/docx.umd.js"></script>
+
+<!-- 兜底：上面的组件缺席时，用自带的渲染器顶上，绝不白屏 -->
+<script src="../markdown/markdown-fallback.js"></script>
+
+<!-- 桥接层：把云存储、总线、组件检测接上 -->
+<!-- 图表引擎：必须排在 workspace.js 之前安装好 window.mermaid -->
+<script type="module" src="./diagram-boot.js"></script>
+<script type="module" src="../shared/cloud-bridge.js"></script>
+<script type="module" src="../shared/view-boot.js"></script>
+
+<!-- 主逻辑。defer 保证它排在上面两个 module 之后执行 -->
+<!-- 「我现在是不是前台那个能力」——window 级快捷键靠它决定要不要响应。
+     必须排在 workspace.js / wire-up.js 之前：它们绑监听时就要用到。 -->
+<script defer src="../shared/active.js"></script>
+<script defer src="../shared/prefs.js"></script>
+<script defer src="./share-cache.js"></script>
+<script defer src="./table-diff.js"></script>
+<script defer src="./workspace.js"></script>
+
+<!-- 审阅与偏好记忆。放最后：此时 window.MDW 已经就绪 -->
+<script type="module" src="./wire-up.js"></script>
+</body>
+</html>

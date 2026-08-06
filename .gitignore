@@ -1,0 +1,11 @@
+# 测试脚手架：会话里临时生成的探针页面，不进版本库
+src/app/__*.html
+__shim.html
+
+# 系统垃圾
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# 备份包自己不进库（见 scripts/backup.sh，它输出到项目外面）
+*.zip

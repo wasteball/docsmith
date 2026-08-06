@@ -1,0 +1,335 @@
+/* =====================================================================
+   Docsmith · 图文卡片
+   ---------------------------------------------------------------------
+   这一份会被 app/main.js 的 scopeCss() 限定到 [data-ds-host="cards"]，
+   所以可以放心用 .app / .header 这些通用类名 —— 三个能力页各有一套同名的，
+   不限定会互相覆盖。（限定规则见 SCOPED_CSS，改文件名记得同步那个正则。）
+   ===================================================================== */
+
+:root, html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+* { box-sizing: border-box; }
+
+.cd-app {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 22px 24px 80px;
+}
+
+/* 嵌进外壳时省掉自己的品牌栏（外壳侧栏已经有身份了） */
+html[data-embed] .cd-brand { display: none; }
+
+.cd-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; margin-bottom: 18px; flex-wrap: wrap;
+}
+.cd-brand { display: flex; align-items: center; gap: 12px; }
+.cd-logo {
+  width: 32px; height: 32px; border-radius: 9px;
+  background: linear-gradient(135deg, var(--accent-hover), var(--accent));
+  color: #fff; display: grid; place-items: center; font-size: 17px;
+}
+.cd-brand h1 { margin: 0; font-size: 17px; font-weight: 600; }
+.cd-brand p { margin: 2px 0 0; font-size: 12.5px; color: var(--text-mute); }
+
+/* ---------------------------------------------------------- 布局 */
+.cd-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .cd-main { grid-template-columns: minmax(0, 1fr); }
+}
+
+.cd-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+.cd-panel + .cd-panel { margin-top: 14px; }
+.cd-panel-title {
+  font-size: 13px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-mute);
+  margin: 0 0 12px;
+}
+
+/* ---------------------------------------------------------- 输入 */
+.cd-input {
+  width: 100%; min-height: 260px; resize: vertical;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 16px;
+  font-family: var(--sans); font-size: 14px; line-height: 1.75;
+  outline: none;
+}
+.cd-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.cd-input::placeholder { color: var(--text-mute); }
+
+.cd-src-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 10px; flex-wrap: wrap;
+}
+.cd-hint { font-size: 12.5px; color: var(--text-mute); }
+.cd-count { font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------- 控件 */
+.cd-field { margin-bottom: 14px; }
+.cd-field:last-child { margin-bottom: 0; }
+.cd-label {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 8px; font-size: 13.5px; margin-bottom: 7px;
+}
+.cd-label b { font-weight: 500; }
+.cd-label span { font-size: 12px; color: var(--text-mute); font-variant-numeric: tabular-nums; }
+
+/* 分段选择：比原生 select 好扫，也不用点开 */
+.cd-seg { display: flex; gap: 4px; flex-wrap: wrap; }
+.cd-seg button {
+  flex: 1 1 auto; min-width: 56px;
+  border: 1px solid var(--border); background: var(--bg);
+  color: var(--text-dim); border-radius: 8px;
+  padding: 7px 6px; font-size: 13px; font-family: inherit;
+  transition: background .14s, color .14s, border-color .14s;
+}
+.cd-seg button:hover { color: var(--text); border-color: var(--border-strong); }
+.cd-seg button.on {
+  background: var(--accent); border-color: var(--accent);
+  color: var(--on-accent, #fff); font-weight: 500;
+}
+.cd-seg.cd-seg-bg button { min-width: 0; flex: 0 0 auto; padding: 6px 10px; }
+
+/* 背景色板 */
+.cd-swatch {
+  display: inline-block; width: 14px; height: 14px; border-radius: 4px;
+  margin-right: 6px; vertical-align: -2px;
+  border: 1px solid rgba(0, 0, 0, .12);
+}
+
+.cd-range { width: 100%; accent-color: var(--accent); }
+
+.cd-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.cd-check input { accent-color: var(--accent); }
+
+.cd-text {
+  width: 100%; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 7px 10px; font-size: 13.5px; font-family: inherit; outline: none;
+}
+.cd-text:focus { border-color: var(--accent); }
+
+.cd-file-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px dashed var(--border-strong); background: transparent;
+  color: var(--text-dim); border-radius: 8px;
+  padding: 7px 12px; font-size: 13px; font-family: inherit; width: 100%;
+  justify-content: center;
+}
+.cd-file-btn:hover { color: var(--text); border-color: var(--accent); }
+.cd-file-clear {
+  border: none; background: transparent; color: var(--text-mute);
+  font-size: 12.5px; padding: 4px 0; text-decoration: underline;
+}
+
+/* ---------------------------------------------------------- 预览 */
+.cd-preview-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.cd-status { font-size: 13px; color: var(--text-mute); }
+.cd-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ------------------------------------------------------- 逐页编辑
+   自动分页够用，但"每张图我自己定"这件事自动分页做不到。
+   这里一页一个卡片：能改文字、能换背景、能上下移、能删。 */
+.cd-seg-mode button { min-width: 74px; padding: 6px 10px; font-size: 12.5px; }
+
+.cd-pages { display: flex; flex-direction: column; gap: 10px; }
+
+.cd-page {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.cd-page.over { border-color: #e08e0b; }
+
+.cd-page-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+.cd-page-no {
+  font: 600 12px/1 var(--mono); color: var(--text-mute);
+  font-variant-numeric: tabular-nums;
+  min-width: 30px;
+}
+.cd-page-warn {
+  font-size: 11.5px; color: #e08e0b;
+  margin-left: 2px;
+}
+.cd-page-tools { margin-left: auto; display: flex; gap: 4px; }
+.cd-page-tools button {
+  border: 1px solid transparent; background: transparent;
+  color: var(--text-mute); border-radius: 6px;
+  width: 26px; height: 24px; font-size: 13px; line-height: 1;
+  display: grid; place-items: center;
+}
+.cd-page-tools button:hover { background: var(--surface); color: var(--text); border-color: var(--border); }
+.cd-page-tools button:disabled { opacity: .3; }
+.cd-page-tools button.danger:hover { color: #ea2261; border-color: #ea2261; }
+
+/* 每页自己的背景选择器：默认「跟随全局」，想单独换才展开 */
+.cd-page-bg {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px 0; flex-wrap: wrap;
+}
+.cd-page-bg select {
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 7px;
+  padding: 4px 8px; font-size: 12px; font-family: inherit; outline: none;
+}
+.cd-page-bg label { font-size: 11.5px; color: var(--text-mute); }
+
+.cd-page textarea {
+  width: 100%; min-height: 118px; resize: vertical;
+  background: transparent; color: var(--text);
+  border: 0; border-radius: 0;
+  padding: 10px 12px 12px;
+  font-family: var(--sans); font-size: 13.5px; line-height: 1.75;
+  outline: none; display: block;
+}
+.cd-page textarea:focus { background: var(--surface); }
+
+/* 卡片铺开。宽度固定，让不同比例的卡片并排时高度自然不同 —— 一眼能看出
+   自己选的是哪种比例。 */
+.cd-cards {
+  display: flex; flex-wrap: wrap; gap: 14px;
+  align-items: flex-start;
+}
+.cd-card {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.cd-card canvas {
+  display: block;
+  width: 208px;          /* 显示尺寸；实际像素由 ratio × scale 决定 */
+  height: auto;
+  cursor: zoom-in;
+}
+.cd-card-no {
+  position: absolute; top: 6px; left: 6px;
+  background: rgba(0, 0, 0, .55); color: #fff;
+  font: 500 11.5px/1 var(--mono, monospace);
+  padding: 4px 6px; border-radius: 5px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.cd-card-save {
+  position: absolute; bottom: 6px; right: 6px;
+  border: none; border-radius: 6px;
+  background: rgba(0, 0, 0, .55); color: #fff;
+  font-size: 11.5px; padding: 4px 7px;
+  opacity: 0; transition: opacity .15s;
+}
+.cd-card:hover .cd-card-save { opacity: 1; }
+
+/* ------------------------------------------------------------ 看大图
+   预览缩到 208px 宽，用户根本判断不了效果（他自己的原话）。
+   点一下就铺满屏幕看原尺寸 —— 这是"发出去之前最后确认一眼"的地方，
+   不能省。
+
+   position:fixed 相对视口定位，在外壳里也能盖满整屏：.frame 没有 transform
+   /filter，不会变成新的包含块（这一点在 shell.css 的 @media print 那段
+   已经验证过了）。 */
+.cd-lightbox {
+  position: fixed; inset: 0; z-index: 400;
+  background: rgba(10, 10, 14, .88);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 12px;
+  padding: 28px 20px;
+}
+.cd-lightbox[hidden] { display: none; }
+.cd-lb-stage {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  width: 100%;
+}
+/* 图按"能完整看到"来缩：高度优先，宽度兜底。 */
+.cd-lb-stage canvas {
+  max-height: 100%; max-width: 100%;
+  width: auto; height: auto;
+  border-radius: 10px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .5);
+  cursor: default;
+}
+.cd-lb-bar {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 10px;
+  color: #fff; font-size: 13.5px;
+}
+.cd-lb-bar button {
+  border: 1px solid rgba(255, 255, 255, .25);
+  background: rgba(255, 255, 255, .1);
+  color: #fff; border-radius: 8px;
+  padding: 6px 12px; font-size: 13px; font-family: inherit;
+}
+.cd-lb-bar button:hover { background: rgba(255, 255, 255, .2); }
+.cd-lb-bar button:disabled { opacity: .35; }
+.cd-lb-no { font-variant-numeric: tabular-nums; min-width: 56px; text-align: center; }
+.cd-lb-close {
+  position: absolute; top: 16px; right: 20px;
+  border: none; background: rgba(255, 255, 255, .12); color: #fff;
+  width: 34px; height: 34px; border-radius: 50%; font-size: 16px;
+}
+.cd-lb-close:hover { background: rgba(255, 255, 255, .24); }
+.cd-lb-hint { color: rgba(255, 255, 255, .6); font-size: 12.5px; }
+
+.cd-empty {
+  padding: 40px 20px; text-align: center;
+  color: var(--text-mute); font-size: 13.5px;
+  border: 1px dashed var(--border); border-radius: 10px;
+}
+
+.cd-busy { display: inline-flex; align-items: center; gap: 7px; }
+.cd-spin {
+  width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid var(--border-strong); border-top-color: var(--accent);
+  animation: cd-spin .7s linear infinite;
+}
+@keyframes cd-spin { to { transform: rotate(360deg); } }
+
+/* toast 复用不了文件库那份（它限定在自己容器里），这里给一个轻量的 */
+.cd-toasts {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 8px; z-index: 300;
+  pointer-events: none;
+}
+.cd-toast {
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 9px;
+  box-shadow: var(--shadow);
+  padding: 9px 15px; font-size: 13.5px;
+  animation: cd-in .18s ease;
+}
+.cd-toast.err { border-color: #ea2261; }
+.cd-toast.ok { border-color: #0ea472; }
+@keyframes cd-in { from { opacity: 0; transform: translateY(6px); } }
+
+@media print { .cd-app { display: none; } }

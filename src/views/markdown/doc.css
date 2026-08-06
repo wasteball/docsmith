@@ -1,0 +1,203 @@
+/* =====================================================================
+   Docsmith · 文档本体样式
+   ---------------------------------------------------------------------
+   这一份从 workspace.css 里切出来，只装「一篇文档长什么样」——
+   正文、标题、表格、代码块、图表容器、公式、脚注，以及打印用的 @media print。
+   工具栏、侧栏、查找面板、审阅面板那些「工作台的壳」一律不在这儿。
+
+   为什么要切开：
+   导出网页要真正做到所见即所得，就得把文档样式**原样**塞进那个单文件里。
+   以前的做法是拼一个 $('#docStyles').textContent —— 而 #docStyles 这个节点
+   在 index.html 里从来就不存在，拼出来永远是空字符串，导出的网页一点样式
+   都没有（用户原话：「导出的是什么玩意儿」）。
+   把文档样式独立成一个文件，导出时整份读进来就行 —— 不用猜、不用按选择器
+   过滤，也不会把 80KB 的工作台外壳一起带走。
+   改这一份等于同时改「页面上看到的」和「导出出去的」，两边永远一致。
+
+   所以：往这儿加规则的前提是「它描述文档本身」。
+   凡是只在工作台里才有意义的（可编辑、把手、改动标记、审阅高亮），
+   请留在 workspace.css。
+   ===================================================================== */
+
+/* Use a familiar ampersand without changing the typography of any other character. */
+@font-face{font-family:'MDW Ampersand';src:local('Arial'),local('Helvetica Neue'),local('Helvetica'),local('Liberation Sans'),local('DejaVu Sans');unicode-range:U+0026;}
+:root{
+  /* 纸白，不是纯白。#fff 配深字在亮环境下反差最硬，盯久了发涩 ——
+     用户说「字体看着眼睛挺难受的」，字形只是一半，另一半是这个反差。
+     #fcfcfb 只压了一点点，肉眼几乎看不出偏色，但长时间阅读明显松一些；
+     正文从 #282b31 提到 #2b2f36 同理（仍然远高于 WCAG AA 的 4.5:1，
+     实测对比度约 12.5:1，可读性一点没让）。
+     打印和导出仍然回到纯白 —— 见文件末尾 @media print。 */
+  --doc-bg:#fcfcfb; --doc-fg:#2b2f36; --doc-muted:#6b7280; --doc-border:#e6e8ec;
+  --doc-link:#2b5fd0; --doc-accent:#c8891a;
+  --doc-code-bg:#f6f7f9; --doc-code-head:#eef0f3; --doc-code-border:#e6e8ec;
+  --doc-inline-fg:#b03060; --doc-inline-bg:#f3f0f2;
+  --doc-quote:#57606a; --doc-quote-bar:#d6dbe2; --doc-th:#f5f6f8;
+  --doc-mark:#fff2a8; --doc-measure:860px;
+
+  /* ---- 字体 ------------------------------------------------------------
+     这里每一条都必须带中文字体，因为**插件没有随包附带任何字体**（除了上面
+     那个只管 & 一个字符的 @font-face）。以前 --doc-font 写的是
+         'Newsreader', Georgia, 'Times New Roman', serif
+     三个都没有中文字形，Newsreader 本身也没打包 —— 于是中文一路掉到浏览器
+     默认的 serif，在 Windows 上就是宋体：笔画细、灰度低、屏幕上看久了发涩。
+     用户原话「字体看着眼睛挺难受的」，说的就是这个。
+
+     现在的排法：先西文字体（拉丁字母好看），紧跟中文字体（汉字好看），
+     浏览器会逐字去找 —— 同一段中英混排，各自用各自最合适的那一款。
+     顺序按「哪个系统最可能有」排：苹方(macOS/iOS) → 微软雅黑(Windows) →
+     思源/Noto(Linux 及装了思源的机器) → 最后才是泛化的 sans-serif。
+
+     ⚠ 苹方（PingFang SC）排在最前是用户点名要的。它只有 macOS/iOS 有；
+     Windows 上会落到「微软雅黑」那一档，而 Win10+ 的「微软雅黑 UI」比
+     旧版雅黑的字距和小字号渲染都好，所以 UI 版排在前面。
+
+     西文这边把 Inter 撤了 —— 它没打包，写了也只是占位；系统自带的
+     Segoe UI / SF 一族本来就是为屏幕调过的，直接用 system-ui 更实在。
+     ------------------------------------------------------------------- */
+  --doc-cjk-sans:'PingFang SC','HarmonyOS Sans SC','Microsoft YaHei UI','Microsoft YaHei',
+                 'Source Han Sans SC','Noto Sans CJK SC','Hiragino Sans GB','WenQuanYi Micro Hei';
+  --doc-cjk-serif:'Source Han Serif SC','Noto Serif CJK SC','Songti SC','SimSun','STSong';
+  /* 圆体：笔画末端是圆的，观感最柔和，看久了眼睛最松。
+     macOS 有苹方之外的圆体不多，主要靠 Windows 的幼圆和思源柔黑。 */
+  --doc-cjk-round:'PingFang SC','HarmonyOS Sans SC','Source Han Sans SC',
+                  'YouYuan','幼圆','Microsoft YaHei UI','Microsoft YaHei';
+
+  /* 正文默认走黑体：屏幕上笔画更结实、更清楚。想要衬线/圆体的在设置里切
+     「正文字体」，走下面 .doc.font-serif / .doc.font-round 那两支。 */
+  --doc-font:'MDW Ampersand',system-ui,-apple-system,'Segoe UI',var(--doc-cjk-sans),sans-serif;
+  --doc-head:'MDW Ampersand',system-ui,-apple-system,'Segoe UI',var(--doc-cjk-sans),sans-serif;
+  /* 等宽也要给中文兜底：代码块里常有中文注释，不然中文会掉到别的字体上，
+     和周围的英文对不齐，看着一跳一跳的。 */
+  --doc-mono:ui-monospace,'SFMono-Regular','JetBrains Mono',Menlo,Consolas,
+             var(--doc-cjk-sans),monospace;
+
+  --c-note:#3b82f6; --c-tip:#0ea472; --c-important:#8b5cf6; --c-warning:#e08e0b; --c-caution:#ef4444;
+}
+[data-theme=dark]{
+  --doc-bg:#14171f; --doc-fg:#dfe3ec; --doc-muted:#9aa0b4; --doc-border:#2a3040;
+  --doc-link:#8bb8ff; --doc-accent:#f4b942;
+  --doc-code-bg:#0f1320; --doc-code-head:#191e2c; --doc-code-border:#252b3a;
+  --doc-inline-fg:#ff9db0; --doc-inline-bg:#20242f;
+  --doc-quote:#a4aabb; --doc-quote-bar:#39414f; --doc-th:#1b2130;
+  --doc-mark:#5a4a12;
+  --c-note:#60a5fa; --c-tip:#34d399; --c-important:#a78bfa; --c-warning:#fbbf24; --c-caution:#f87171;
+}
+/* 正文：字号 18 / 行高 1.8。
+   行高从 1.72 提到 1.8 —— 中文没有词间空格，靠的是行间的空白来分行，
+   拉开一点，长段落扫起来眼睛不容易串行。
+   letter-spacing 给 .01em：汉字之间稍微松一格，小字号下更透气。
+   text-rendering 交给浏览器默认（optimizeLegibility 在长文档上会拖慢排版）。 */
+.doc{background:var(--doc-bg); color:var(--doc-fg); font-family:var(--doc-font); font-size:18px; line-height:1.8; letter-spacing:.01em; max-width:var(--doc-measure); margin:0 auto; padding:48px 30px 96px; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;}
+/* 默认已经是黑体，所以 .font-sans 只是「显式说一遍」，什么都不用改。
+   衬线是另一支：西文用 Georgia 一类，中文用思源宋体/宋体 —— 注意中文衬线
+   必须显式给，否则又会掉回浏览器默认宋体那个发灰的渲染。
+   圆体那一支给「看久了眼睛累」的场景，笔画末端圆润，观感最软。 */
+.doc.font-sans{--doc-font:var(--doc-head);}
+.doc.font-serif{--doc-font:'MDW Ampersand',Georgia,'Times New Roman',var(--doc-cjk-serif),serif;}
+.doc.font-round{--doc-font:'MDW Ampersand',ui-rounded,'SF Pro Rounded',system-ui,var(--doc-cjk-round),sans-serif;}
+.doc > *:first-child{margin-top:0;}
+.doc > .blk:first-child > *:first-child{margin-top:0;}
+.doc p{margin:0 0 1.1em;}
+.doc a{color:var(--doc-link); text-decoration:none; border-bottom:1px solid color-mix(in srgb, var(--doc-link) 35%, transparent);}
+.doc a:hover{border-bottom-color:var(--doc-link);}
+.doc h1,.doc h2,.doc h3,.doc h4,.doc h5,.doc h6{font-family:var(--doc-head); font-weight:600; line-height:1.25; letter-spacing:-.02em; margin:1.9em 0 .6em; scroll-margin-top:16px; position:relative;}
+.doc h1{font-size:2.05em; letter-spacing:-.03em;}
+.doc h2{font-size:1.55em; padding-bottom:.28em; border-bottom:1px solid var(--doc-border);}
+.doc h3{font-size:1.25em;} .doc h4{font-size:1.05em;}
+.doc h5{font-size:.95em; color:var(--doc-muted);}
+.doc h6{font-size:.85em; color:var(--doc-muted); text-transform:uppercase; letter-spacing:.06em;}
+.doc .h-anchor{position:absolute; left:-.9em; width:.9em; text-align:center; color:var(--doc-accent); opacity:0; text-decoration:none; border:none; font-weight:400;}
+.doc h1:hover .h-anchor,.doc h2:hover .h-anchor,.doc h3:hover .h-anchor,.doc h4:hover .h-anchor{opacity:.7;}
+.doc ul,.doc ol{margin:0 0 1.1em; padding-left:1.5em;}
+.doc li{margin:.28em 0;} .doc li::marker{color:var(--doc-accent);}
+.doc li > ul,.doc li > ol{margin:.2em 0;}
+.doc li input[type=checkbox]{margin-right:.5em; transform:translateY(1px); accent-color:var(--doc-accent);}
+.doc ul:has(> li > input[type=checkbox]){list-style:none; padding-left:.2em;}
+.doc :not(pre) > code{font-family:var(--doc-mono); font-size:.86em; padding:.15em .4em; border-radius:5px; background:var(--doc-inline-bg); color:var(--doc-inline-fg);}
+.doc hr{border:none; border-top:1px solid var(--doc-border); margin:2.4em 0;}
+.doc img{max-width:100%; border-radius:8px;}
+.doc img.zoomable-img{cursor:zoom-in;}
+.doc .img-missing{display:inline-flex; flex-direction:column; align-items:center; gap:2px; padding:16px 20px; border:1px dashed var(--doc-border); border-radius:8px; color:var(--doc-muted); font-family:var(--doc-head); font-size:13px; text-align:center;}
+.doc .img-missing small{font-family:var(--doc-mono); font-size:11px; opacity:.7; word-break:break-all;}
+.doc strong{font-weight:600;}
+.doc mark{background:var(--doc-mark); color:inherit; padding:.05em .2em; border-radius:3px;}
+.doc ins{text-decoration:none; border-bottom:2px solid var(--doc-accent);}
+.doc sup,.doc sub{font-size:.72em;}
+.doc abbr{text-decoration:underline dotted; cursor:help; text-underline-offset:2px;}
+.doc blockquote{margin:1.2em 0; padding:.2em 1.1em; color:var(--doc-quote); border-left:3px solid var(--doc-quote-bar); font-style:italic;}
+.doc blockquote p:last-child{margin-bottom:.2em;}
+.doc details{margin:1.2em 0; padding:0 .95em; border:1px solid var(--doc-border); border-radius:8px; background:color-mix(in srgb,var(--doc-accent) 4%,var(--doc-bg));}
+.doc details > summary{padding:.72em 0; cursor:pointer; font-family:var(--doc-head); font-weight:600; color:var(--doc-fg);}
+.doc details > summary::marker{color:var(--doc-accent);}
+.doc details[open] > summary{margin-bottom:.85em; border-bottom:1px solid var(--doc-border);}
+.doc details > :last-child{margin-bottom:.85em;}
+.doc .callout{margin:1.3em 0; padding:.9em 1.1em; border-radius:10px; font-style:normal; border:1px solid var(--doc-border); border-left:4px solid var(--_c, var(--doc-accent)); background:color-mix(in srgb, var(--_c, var(--doc-accent)) 8%, var(--doc-bg));}
+.doc .callout-note{--_c:var(--c-note);} .doc .callout-tip{--_c:var(--c-tip);} .doc .callout-important{--_c:var(--c-important);} .doc .callout-warning{--_c:var(--c-warning);} .doc .callout-caution{--_c:var(--c-caution);}
+.doc .callout-head{display:flex; align-items:center; gap:.5em; margin-bottom:.4em; font-family:var(--doc-head); font-weight:600; color:var(--_c);}
+.doc .callout p:last-child{margin-bottom:0;}
+.doc .toc-inline{margin:1.4em 0; padding:1em 1.2em; border:1px solid var(--doc-border); border-radius:10px; background:color-mix(in srgb,var(--doc-accent) 4%, var(--doc-bg));}
+.doc .toc-inline-title{font-family:var(--doc-head); font-weight:600; font-size:.85em; text-transform:uppercase; letter-spacing:.06em; color:var(--doc-muted); margin-bottom:.5em;}
+.doc .toc-tree{list-style:none; margin:0; padding:0; font-family:var(--doc-head); font-size:.92em;}
+.doc .toc-tree li{margin:.18em 0;} .doc .toc-tree a{border:none;}
+.doc .toc-tree .lvl-2{padding-left:1em;} .doc .toc-tree .lvl-3{padding-left:2em; font-size:.95em;} .doc .toc-tree .lvl-4{padding-left:3em; font-size:.9em; color:var(--doc-muted);}
+.doc .table-wrap{overflow-x:auto; margin:1.3em 0; border:1px solid var(--doc-border); border-radius:10px;}
+.doc table{border-collapse:collapse; width:100%; font-size:.92em; font-family:var(--doc-head);}
+.doc th,.doc td{padding:.6em .9em; border-bottom:1px solid var(--doc-border); text-align:left;}
+.doc th{background:var(--doc-th); font-weight:600;} .doc tr:last-child td{border-bottom:none;}
+.doc .code-block,.doc .mermaid-block{margin:1.3em 0; border:1px solid var(--doc-code-border); border-radius:10px; overflow:hidden; background:var(--doc-code-bg);}
+.doc .cb-head{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 12px; background:var(--doc-code-head); border-bottom:1px solid var(--doc-code-border);}
+.doc .cb-lang{font-family:var(--doc-mono); font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--doc-muted);}
+.doc .cb-actions{display:flex; gap:8px;}
+.doc .mm-copy{font-family:var(--doc-head); font-size:12px; font-weight:500; cursor:pointer; color:var(--doc-muted); background:transparent; border:1px solid var(--doc-code-border); border-radius:6px; padding:3px 9px; transition:color .15s,border-color .15s;}
+.doc .mm-copy:hover{color:var(--doc-fg); border-color:var(--doc-accent);}
+.doc .mm-copy.ok{color:var(--c-tip); border-color:var(--c-tip);}
+.doc .copy-btn,.doc .mm-toggle{font-family:var(--doc-head); font-size:12px; font-weight:500; cursor:pointer; color:var(--doc-muted); background:transparent; border:1px solid var(--doc-code-border); border-radius:6px; padding:3px 9px; transition:color .15s,border-color .15s;}
+.doc .copy-btn:hover,.doc .mm-toggle:hover{color:var(--doc-fg); border-color:var(--doc-accent);}
+.doc .copy-btn.ok{color:var(--c-tip); border-color:var(--c-tip);}
+.doc pre{margin:0; padding:14px 16px; overflow-x:auto;}
+.doc pre code{font-family:var(--doc-mono); font-size:.78em; line-height:1.6; background:none; padding:0; color:inherit;}
+/* mermaid + pan/zoom (fixed) */
+.doc .mermaid-render{position:relative; padding:0; min-height:60px;}
+.doc .mm-viewport{position:relative; overflow:hidden; cursor:grab; background:transparent; touch-action:pan-y; outline:none;}
+.doc .mm-viewport:focus-visible{box-shadow:inset 0 0 0 2px var(--doc-accent); border-radius:8px;}
+.doc .mm-viewport.grabbing{cursor:grabbing; touch-action:none;}
+.doc .mm-stage{transform-origin:0 0; will-change:transform;}
+/* margin:0 —— 画布里的图由 transform 负责居中，SVG 自己不许再居中一次。
+   diagrams.css 的 .dg{margin:0 auto} 是给「直接嵌在文章里」的图写的；
+   在 .mm-stage 里它会和 fit() 的平移叠加，图就偏右（见 prepSvg 的注释）。
+   prepSvg() 也写了内联 margin:0，两处都留着：内联管渲染那一刻，
+   这条管「导出的网页/打印」这些没有 JS 参与的场合。 */
+.doc .mm-stage svg{display:block; max-width:none; margin:0;}
+.doc .mm-tools{position:absolute; top:10px; right:10px; display:flex; gap:2px; padding:4px; background:color-mix(in srgb, var(--doc-code-head) 80%, transparent); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); border:1px solid var(--doc-code-border); border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.10), 0 1px 2px rgba(0,0,0,.06); z-index:3; opacity:0; transform:translateY(-5px) scale(.97); transform-origin:top right; pointer-events:none; transition:opacity .18s ease, transform .18s ease;}
+.doc .mermaid-render:hover .mm-tools,.doc .mm-tools:focus-within{opacity:1; transform:none; pointer-events:auto;}
+.doc .mm-tools button{display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border:none; background:transparent; color:var(--doc-muted); border-radius:7px; cursor:pointer; transition:background .14s, color .14s, transform .05s;}
+.doc .mm-tools button:hover{background:color-mix(in srgb, var(--doc-accent) 14%, transparent); color:var(--doc-accent);}
+.doc .mm-tools button:focus{outline:none;}
+.doc .mm-tools button:focus-visible{background:color-mix(in srgb,var(--doc-accent) 14%,transparent); color:var(--doc-accent); box-shadow:inset 0 0 0 1.5px var(--doc-accent);}
+.doc .mm-tools button:active{transform:translateY(1px);}
+.doc .mm-tools svg{width:16px; height:16px; pointer-events:none;}
+.doc .mm-tools .mm-zoom{display:inline-flex; align-items:center; justify-content:center; padding:0 6px; min-width:46px; font-family:var(--doc-head); font-size:11px; font-variant-numeric:tabular-nums; color:var(--doc-muted); user-select:none;}
+@media (hover:none){.doc .mm-tools{opacity:1; transform:none; pointer-events:auto;}}
+.doc .mm-loading{padding:18px; color:var(--doc-muted); font-family:var(--doc-head); font-size:13px;}
+.doc .mm-error{padding:16px; color:var(--c-caution); font-family:var(--doc-mono); font-size:13px; text-align:left;}
+.doc .mermaid-block[data-view=diagram] .mermaid-source{display:none;}
+.doc .mermaid-block[data-view=source] .mermaid-render{display:none;}
+.doc .math-block{margin:1.3em 0; overflow-x:auto; text-align:center;}
+.doc .math-err{color:var(--c-caution); font-family:var(--doc-mono);}
+.doc .raw-fallback{white-space:pre-wrap; word-break:break-word; font-family:var(--doc-mono); font-size:.72em; line-height:1.6; background:var(--doc-code-bg); border:1px solid var(--doc-code-border); border-radius:10px; padding:16px;}
+.doc .fn-ref a{border:none; font-size:.75em; padding:0 .1em;}
+.doc .footnotes{margin-top:3em; font-size:.9em; color:var(--doc-muted);}
+.doc .footnotes hr{margin-bottom:1em;} .doc .footnotes li{margin:.4em 0;} .doc .fn-back{border:none; margin-left:.3em;}
+@media print{
+  .topbar,.sidebar,.status,.toast,.modal,.overlay,.mm-tools,.editor-pane,.scroll-nav,.blk-handle,.pop-menu,.cell-h,.sel-tools,.link-box,.blk-add-end,.chg-del,.chg-diff,.chg-nav,.chg-panel,.chg-banner{display:none !important;}
+  .doc .blk[data-chg]::before{display:none !important;}
+  .doc .find-match-block,.doc .find-current-block{outline:none !important; box-shadow:none !important;}
+  .main,.content{display:block !important;} .preview-pane{overflow:visible;}
+  .doc{--doc-bg:#fff; --doc-fg:#111; --doc-muted:#555; --doc-border:#ccc; --doc-code-bg:#f6f6f6; --doc-code-head:#eee; max-width:none; margin:0; padding:0; font-size:11.5pt;}
+  .doc .mm-viewport{overflow:visible !important; height:auto !important;} .doc .mm-stage{transform:none !important;}
+  .doc .cb-actions,.doc .copy-btn,.doc .mm-toggle,.doc .mm-copy,.doc .h-anchor,.doc .mm-zoom{display:none !important;}
+  .doc .code-block,.doc .mermaid-block,.doc table,.doc blockquote,.doc .callout,.doc pre{page-break-inside:avoid;}
+  .doc .mermaid-block[data-view] .mermaid-source{display:none !important;}
+  body{overflow:visible; height:auto; display:block;}
+}

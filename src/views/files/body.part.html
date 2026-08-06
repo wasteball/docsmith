@@ -1,0 +1,251 @@
+
+<div class="app">
+
+  <div class="header">
+    <div class="brand">
+      <div class="logo">↑</div>
+      <div class="brand-text">
+        <h1>文件库</h1>
+        <p>拖进来 · 拿链接 · 发出去</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="gear-btn md-link" id="md-convert-link" title="打开 Markdown 工作台">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M2 4.5h12v7H2z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+          <path d="M4 9.5V6.8l1.4 1.6L6.8 6.8v2.7M9.4 6.5v3M9.4 9.5l1.4-1.5M9.4 9.5L8 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="md-link-txt">Markdown</span>
+      </button>
+      <div class="preset-chip" id="preset-chip">
+        <span>env</span>
+        <select id="preset-select"></select>
+      </div>
+      <button class="gear-btn" id="btn-theme" title="切换主题（亮 / 暗）">
+        <svg id="theme-icon-moon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M13.5 9.6A5.6 5.6 0 116.4 2.5 4.4 4.4 0 0013.5 9.6z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+        </svg>
+        <svg id="theme-icon-sun" width="16" height="16" viewBox="0 0 16 16" fill="none" style="display:none">
+          <circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.3"/>
+          <path d="M8 1.5v1.6M8 12.9v1.6M2.6 2.6l1.1 1.1M12.3 12.3l1.1 1.1M1.5 8h1.6M12.9 8h1.6M2.6 13.4l1.1-1.1M12.3 3.7l1.1-1.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button class="gear-btn" id="btn-settings" title="设置 (,)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M8 10.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" stroke="currentColor" stroke-width="1.3"/>
+          <path d="M13 8a5 5 0 00-.1-1l1.1-.9-1-1.7-1.4.5a5 5 0 00-1.7-1L9.5 2h-3l-.3 1.4a5 5 0 00-1.7 1l-1.4-.5-1 1.7 1.1.9a5 5 0 000 2l-1.1.9 1 1.7 1.4-.5a5 5 0 001.7 1l.3 1.4h3l.3-1.4a5 5 0 001.7-1l1.4.5 1-1.7-1.1-.9A5 5 0 0013 8z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="first-use-banner" id="first-use-banner">
+    <span>👋 第一次使用？先配置一下 API 和 userCode</span>
+    <span>→</span>
+  </div>
+
+  <div class="dropzone" id="dropzone">
+    <input type="file" id="file-input" multiple style="display:none" />
+    <input type="file" id="folder-input" webkitdirectory directory multiple style="display:none" />
+    <div class="dropzone-inner">
+      <div class="dropzone-icon">⤒</div>
+      <div class="dropzone-text">拖拽文件或文件夹到此处，或点击选择</div>
+      <div class="dropzone-hint">支持多文件与整个文件夹 · <kbd>Ctrl</kbd>+<kbd>V</kbd> 粘贴 · <button type="button" class="dz-folder-btn" id="pick-folder">📁 上传文件夹</button></div>
+    </div>
+  </div>
+
+  <div class="upload-cat-bar">
+    <label>零散文件归类到</label>
+    <select id="upload-category"></select>
+    <span class="cat-hint">上传文件夹时按文件夹名自动分类</span>
+    <button class="manage-cats" id="btn-manage-cats" title="新增 / 重命名 / 删除分类">⚙ 管理分类</button>
+  </div>
+
+  <div class="latest" id="latest">
+    <div class="latest-header">
+      <span class="check">✓</span>
+      <span>上传成功</span>
+      <span class="auto-copied" id="auto-copied-tag">已自动复制</span>
+    </div>
+    <div class="latest-name" id="latest-name"></div>
+    <div class="latest-url">
+      <input type="text" id="latest-url-input" readonly />
+      <button class="copy-btn share" id="latest-share">⤴ share</button>
+      <button class="copy-btn open" id="latest-download">↓ 下载</button>
+      <button class="copy-btn open" id="latest-open">↗ open</button>
+      <button class="copy-btn" id="latest-copy">copy</button>
+    </div>
+  </div>
+
+  <div class="queue" id="queue"></div>
+
+  <div class="dl-panel" id="dl-panel">
+    <div class="dl-panel-head" id="dl-panel-head">
+      <span class="dl-panel-title">↓ 下载 / 转换</span>
+      <span class="dl-panel-hint">粘贴链接 · 自动识别 · md→Word/PDF · ppt→PDF</span>
+      <span class="dl-chev">▸</span>
+    </div>
+    <div class="dl-panel-body">
+      <textarea id="dl-input" placeholder="粘贴 OSS 链接或中转页链接（支持 file_path=... 形式）"></textarea>
+      <div class="dl-preview" id="dl-preview"></div>
+      <div class="dl-fmt" id="dl-fmt">
+        <div class="dl-fmt-label"><span>输出格式</span><span class="auto-tag" id="dl-auto-tag">✓ 已应用偏好</span></div>
+        <div class="seg-fmt" id="dl-seg"></div>
+        <label class="dl-remember"><input type="checkbox" id="dl-remember"><span>记住该类型的格式偏好</span></label>
+      </div>
+      <div class="field" style="margin-top:12px;">
+        <label>保存文件名 · 可选</label>
+        <input type="text" id="dl-fname" placeholder="留空自动识别" />
+      </div>
+      <button class="dl-run-btn" id="dl-run">下载文件</button>
+    </div>
+  </div>
+
+  <div class="history-section">
+    <div class="history-head">
+      <div class="history-title">
+        <button class="hist-check" id="select-all-check" title="全选 / 取消全选"></button>
+        <span>History</span>
+        <span class="count" id="history-count">0</span>
+      </div>
+      <div class="history-actions">
+        <button class="text-btn" id="btn-export-history">export</button>
+        <button class="text-btn danger" id="btn-clear-history">clear</button>
+      </div>
+    </div>
+    <div class="cat-filter" id="cat-filter"></div>
+    <div class="kind-filter" id="kind-filter"></div>
+    <div class="batch-bar" id="batch-bar">
+      <span class="batch-count" id="batch-count">0 selected</span>
+      <div class="batch-spacer"></div>
+      <select class="batch-btn" id="batch-move" title="移动到分类"></select>
+      <button class="batch-btn primary" id="batch-share">⤴ share</button>
+      <button class="batch-btn" id="batch-download" title="逐个分别下载所选文件">↓ 逐个</button>
+      <button class="batch-btn" id="batch-zip" title="打包成一个 ZIP（按已建分类归集到文件夹）">🗜 打包</button>
+      <button class="batch-btn" id="batch-copy">copy urls</button>
+      <button class="batch-btn danger" id="batch-delete">delete</button>
+      <button class="batch-btn" id="batch-clear">cancel</button>
+    </div>
+    <div class="history-list" id="history-list"></div>
+  </div>
+
+</div>
+
+<div class="drawer-backdrop" id="drawer-backdrop"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-header">
+    <h2>设置</h2>
+    <div style="display: flex; gap: 10px; align-items: center;">
+      <span class="save-indicator" id="save-indicator">✓ 已保存</span>
+      <button class="icon-btn" id="btn-close-drawer" style="color: var(--text-dim); border-color: var(--border);" title="关闭 (Esc)">
+        <svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="drawer-body">
+
+    <div class="drawer-section">
+      <div class="drawer-section-title"><span>配置组</span></div>
+      <div class="preset-tabs" id="preset-tabs"></div>
+      <div style="font-family: var(--mono); font-size: 10px; color: var(--text-mute);">右键点一下可以重命名或删除</div>
+    </div>
+
+    <div class="drawer-section">
+      <div class="drawer-section-title">存到哪里</div>
+      <div class="field">
+        <label>云存储服务</label>
+        <select id="cfg-provider"></select>
+        <div class="cfg-help" id="provider-summary"></div>
+      </div>
+      <!-- 这一块的字段由 storage-form.js 按上面选的服务动态生成 -->
+      <div id="provider-fields"></div>
+      <div class="cfg-status" id="provider-status"></div>
+      <button class="btn-add" id="btn-test-storage">测试一下能不能上传</button>
+    </div>
+
+    <div class="drawer-section">
+      <div class="drawer-section-title">上传行为</div>
+      <div class="field-row">
+        <div class="field">
+          <label>上传完自动复制链接</label>
+          <select id="cfg-autoCopy" data-cfg="autoCopy">
+            <option value="true">开</option>
+            <option value="false">关</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>同时上传几个</label>
+          <select id="cfg-concurrency" data-cfg="concurrency">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="5">5</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <div class="drawer-section-title">外观</div>
+      <div class="field">
+        <label>主题</label>
+        <div class="seg" id="theme-seg">
+          <button type="button" data-theme-val="dark">暗</button>
+          <button type="button" data-theme-val="light">亮</button>
+          <button type="button" data-theme-val="auto">跟随系统</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>强调色</label>
+        <div class="accent-swatches" id="accent-swatches"></div>
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <div class="drawer-section-title">分享文案</div>
+      <div class="field">
+        <label>share format · 文件名 + 链接</label>
+        <select id="cfg-shareFormat">
+          <option value="name_url">name + url（两行，推荐）</option>
+          <option value="markdown">markdown 链接</option>
+          <option value="inline">name — url（单行）</option>
+          <option value="url">仅链接</option>
+        </select>
+        <div class="share-preview" id="share-preview"></div>
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <div class="drawer-section-title">下载时默认转成什么格式</div>
+      <div id="dlpref-list"></div>
+      <div style="font-family: var(--mono); font-size: 10px; color: var(--text-mute); margin-top:8px;">设置后，历史记录中对应类型的「↓」按钮将默认按此格式下载/转换。</div>
+    </div>
+
+  </div>
+  <div class="drawer-footer">
+    <button class="text-btn" id="btn-export-config">导出配置</button>
+    <button class="text-btn" id="btn-import-config">导入配置</button>
+  </div>
+</aside>
+
+<div id="renderHost"></div>
+
+<div class="toast-container" id="toasts"></div>
+<button class="to-top" id="to-top" type="button" title="回到顶部" aria-label="回到顶部">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
+
+<div class="modal-backdrop" id="modal">
+  <div class="modal">
+    <h3 id="modal-title">Input</h3>
+    <input type="text" id="modal-input" />
+    <div class="modal-actions">
+      <button class="modal-btn" id="modal-cancel">cancel</button>
+      <button class="modal-btn primary" id="modal-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+
+
+

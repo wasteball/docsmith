@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-accent="blue" data-view-id="cards">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图文卡片 · Docsmith</title>
+
+<!-- appearance-global.js 必须在首帧前跑（它给 <html> 打主题属性），
+     所以刻意不是 module。合并进外壳时 main.js 会把 head 里的脚本一起搬过去。 -->
+<script src="../../core/appearance-global.js"></script>
+<link rel="stylesheet" href="../../core/tokens.css">
+<link rel="stylesheet" href="../../core/buttons.css">
+<link rel="stylesheet" href="./cards.css">
+</head>
+<body>
+
+<div class="cd-app">
+
+  <div class="cd-head">
+    <div class="cd-brand">
+      <div class="cd-logo">▤</div>
+      <div>
+        <h1>图文卡片</h1>
+        <p>粘上文字 · 变成图 · 发小红书</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="cd-main">
+
+    <!-- ==================================================== 左：内容 + 预览 -->
+    <div>
+      <div class="cd-panel">
+        <div class="cd-preview-head">
+          <p class="cd-panel-title" style="margin:0">内容</p>
+          <!-- 两种模式。自动适合"粘一篇长文就走"，手动适合"每张图我自己定"。
+               互相之间能转：自动的结果可以一键拆成手动的每一页（见 wire-up 的
+               enterManual），不用从零敲。 -->
+          <div class="cd-seg cd-seg-mode" id="cd-mode">
+            <button type="button" data-v="auto" title="粘一篇长文，工具按内容自动分页">自动分页</button>
+            <button type="button" data-v="manual" title="自己决定分几张、每张写什么、用什么背景">逐页编辑</button>
+          </div>
+        </div>
+
+        <!-- 自动模式 -->
+        <div id="cd-auto-pane">
+          <textarea class="cd-input" id="cd-src" spellcheck="false"
+            placeholder="把文字粘进来。支持 Markdown —— # 标题、**加粗**、- 列表、> 引用都会排好版。
+
+也可以点下面的「取当前文档」，直接拿 Markdown 工作台里正在看的那篇。"></textarea>
+          <div class="cd-src-row">
+            <button class="btn" id="cd-pull" type="button" title="拿 Markdown 工作台里正在打开的那篇文档">取当前文档</button>
+            <button class="btn" id="cd-clear" type="button">清空</button>
+            <span class="cd-hint"><span class="cd-count" id="cd-count">0</span> 字</span>
+          </div>
+        </div>
+
+        <!-- 手动模式：一页一个编辑框，可增删、可排序、可单独换背景 -->
+        <div id="cd-manual-pane" hidden>
+          <div id="cd-pages" class="cd-pages"></div>
+          <div class="cd-src-row">
+            <button class="btn primary" id="cd-add-page" type="button">＋ 加一页</button>
+            <button class="btn" id="cd-from-auto" type="button" title="把自动分页的结果拆成每一页，再自己微调">从自动分页导入</button>
+            <span class="cd-hint"><span id="cd-page-count">0</span> 页</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="cd-panel">
+        <div class="cd-preview-head">
+          <p class="cd-panel-title" style="margin:0">预览</p>
+          <div class="cd-actions">
+            <span class="cd-status" id="cd-status"></span>
+            <button class="btn" id="cd-copy" type="button" title="把第一张图复制到剪贴板">复制首图</button>
+            <button class="btn primary" id="cd-zip" type="button">打包下载全部</button>
+          </div>
+        </div>
+        <div id="cd-cards" class="cd-cards"></div>
+        <div class="cd-empty" id="cd-empty">左边写点东西，这里就会出现卡片</div>
+      </div>
+    </div>
+
+    <!-- ==================================================== 右：样式设置 -->
+    <div>
+      <div class="cd-panel">
+        <p class="cd-panel-title">尺寸</p>
+        <div class="cd-field">
+          <div class="cd-label"><b>长宽比</b><span id="cd-ratio-hint"></span></div>
+          <div class="cd-seg" id="cd-ratio"></div>
+        </div>
+        <div class="cd-field">
+          <div class="cd-label"><b>清晰度</b><span id="cd-scale-val"></span></div>
+          <div class="cd-seg" id="cd-scale">
+            <button type="button" data-v="1">标准</button>
+            <button type="button" data-v="2">高清 2×</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="cd-panel">
+        <p class="cd-panel-title">外观</p>
+        <div class="cd-field">
+          <div class="cd-label"><b>背景</b></div>
+          <div class="cd-seg cd-seg-bg" id="cd-bg"></div>
+        </div>
+        <div class="cd-field">
+          <div class="cd-label"><b>自己的背景图</b></div>
+          <input type="file" id="cd-bgfile" accept="image/*" hidden>
+          <button class="cd-file-btn" id="cd-bgpick" type="button">＋ 选一张图片</button>
+          <button class="cd-file-clear" id="cd-bgclear" type="button" hidden>移除背景图，回到内置背景</button>
+        </div>
+        <div class="cd-field" id="cd-blur-field" hidden>
+          <div class="cd-label"><b>背景模糊</b><span id="cd-blur-val">18 px</span></div>
+          <input type="range" class="cd-range" id="cd-blur" min="0" max="60" step="2" value="18">
+          <p class="cd-hint" style="margin:6px 0 0">背景太清楚会抢正文。文字颜色会自动挑（黑/白）并在需要时加一层蒙版。</p>
+        </div>
+        <div class="cd-field">
+          <div class="cd-label"><b>字号</b><span id="cd-font-val">100%</span></div>
+          <input type="range" class="cd-range" id="cd-font" min="80" max="130" step="5" value="100">
+        </div>
+      </div>
+
+      <div class="cd-panel">
+        <p class="cd-panel-title">水印与页码</p>
+        <div class="cd-field">
+          <div class="cd-label"><b>水印文字</b></div>
+          <input type="text" class="cd-text" id="cd-wm-text" placeholder="留空就不加，比如 @你的昵称">
+        </div>
+        <div class="cd-field">
+          <div class="cd-label"><b>自己的 logo</b></div>
+          <input type="file" id="cd-wmfile" accept="image/*" hidden>
+          <button class="cd-file-btn" id="cd-wmpick" type="button">＋ 选一张 logo</button>
+          <button class="cd-file-clear" id="cd-wmclear" type="button" hidden>移除 logo</button>
+        </div>
+        <div class="cd-field">
+          <div class="cd-label"><b>水印位置</b></div>
+          <div class="cd-seg" id="cd-wm-pos">
+            <button type="button" data-v="tl">左上</button>
+            <button type="button" data-v="tr">右上</button>
+            <button type="button" data-v="bl">左下</button>
+            <button type="button" data-v="br">右下</button>
+          </div>
+        </div>
+        <div class="cd-field">
+          <div class="cd-label"><b>水印透明度</b><span id="cd-wm-op-val">55%</span></div>
+          <input type="range" class="cd-range" id="cd-wm-op" min="10" max="100" step="5" value="55">
+        </div>
+        <div class="cd-field">
+          <label class="cd-check"><input type="checkbox" id="cd-pageno" checked> 显示页码（第 N / 共 M）</label>
+        </div>
+        <div class="cd-field">
+          <label class="cd-check"><input type="checkbox" id="cd-cover"> 多做一张封面（用第一个标题）</label>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+    <!-- 看大图。预览缩到两百多像素宽，判断不了效果，所以点一下要能看原尺寸。
+     ⚠ 用 hidden 属性控制显隐 —— core/tokens.css 里有一条
+     [hidden]{display:none!important}，正是为了压住 .cd-lightbox 自己的
+     display:flex（否则 hidden 无效，会留一个铺满屏幕的透明层挡住一切点击，
+     那就是项目里记过的「卡死，只能刷新」那个 bug）。 -->
+<div class="cd-lightbox" id="cd-lightbox" hidden>
+  <button class="cd-lb-close" id="cd-lb-close" type="button" title="关闭（Esc）" aria-label="关闭">✕</button>
+  <div class="cd-lb-stage" id="cd-lb-stage"></div>
+  <div class="cd-lb-bar">
+    <button id="cd-lb-prev" type="button" title="上一张（←）">← 上一张</button>
+    <span class="cd-lb-no" id="cd-lb-no">1 / 1</span>
+    <button id="cd-lb-next" type="button" title="下一张（→）">下一张 →</button>
+    <button id="cd-lb-save" type="button">保存这张</button>
+  </div>
+  <p class="cd-lb-hint">按 Esc 关闭 · ← → 切换</p>
+</div>
+
+<div class="cd-toasts" id="cd-toasts"></div>
+
+<!-- 排版引擎（classic script，挂 window.DSCards）。必须排在 wire-up 之前。 -->
+<script src="./renderer.js"></script>
+<!-- 打包下载：复用文件库那份自写的 ZIP 生成器（window.DSZip） -->
+<script src="../files/zip-writer.js"></script>
+<script type="module" src="./wire-up.js"></script>
+<script type="module" src="../shared/view-boot.js"></script>
+
+</body>
+</html>
