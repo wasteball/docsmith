@@ -247,7 +247,17 @@
 
   /* --------------------------------------------------------- 视觉规格
      字号跟着卡片宽度缩放：同一套参数在 1080 和 1440 宽下观感一致。
-     基准宽度取 1242（3:4 主推档）。 */
+     基准宽度取 1242（3:4 主推档）。
+
+     排版取向参考了 md.doocs.org（公众号排版工具）—— 它的东西在手机上读
+     特别舒服，值得学的是这几条，都落在下面的参数和 drawPage 里：
+       · **标题居中 + 下方一道短横线**。长文里标题居中会显得散，但卡片是
+         一屏一个主题，居中反而像杂志内页，层级也更清楚。
+       · **行高给足**（正文 1.8）。中文没有词间空格，靠行距分行，
+         手机上小屏尤其需要。
+       · **段间距大于行距**。段落之间要能"喘口气"，读者扫得快。
+       · **引用块带左边条 + 淡底色**，不只是一根线 —— 手机上一根细线不够显眼。
+       · **代码块带标题栏**（显示语言名），和正文明确分开。 */
   function specOf(W, H, scale) {
     var k = (W / 1242) * (scale || 1);
     var padX = Math.round(W * 0.098);          // 左右留白约 10%
@@ -257,15 +267,19 @@
       padTop: Math.round(H * 0.085),
       padBottom: Math.round(H * 0.075),
       maxW: W - padX * 2,
-      body:    { size: Math.round(46 * k), line: 1.75, weight: 400 },
-      h1:      { size: Math.round(72 * k), line: 1.32, weight: 700 },
-      h2:      { size: Math.round(58 * k), line: 1.38, weight: 700 },
+      /* 正文行高 1.85（原 1.75）—— 学 Doocs 的取向，中文长句更好扫。 */
+      body:    { size: Math.round(46 * k), line: 1.85, weight: 400 },
+      h1:      { size: Math.round(74 * k), line: 1.34, weight: 700 },
+      h2:      { size: Math.round(58 * k), line: 1.4,  weight: 700 },
       h3:      { size: Math.round(50 * k), line: 1.45, weight: 600 },
-      quote:   { size: Math.round(42 * k), line: 1.7,  weight: 400 },
-      code:    { size: Math.round(36 * k), line: 1.6,  weight: 400 },
+      quote:   { size: Math.round(42 * k), line: 1.75, weight: 400 },
+      code:    { size: Math.round(36 * k), line: 1.62, weight: 400 },
       caption: { size: Math.round(30 * k), line: 1.4,  weight: 400 },
-      gap:     Math.round(30 * k),          // 块间距
-      gapTight: Math.round(14 * k)          // 标题和它下面那段之间
+      /* 段间距从 30 提到 38：段落之间"喘口气"，是 Doocs 观感舒服的关键之一 */
+      gap:     Math.round(38 * k),
+      gapTight: Math.round(16 * k),         // 标题和它下面那段之间
+      /* 标题下面那道短横线（Doocs 的标志性细节） */
+      hrule:   { w: Math.round(W * 0.11), h: Math.max(3, Math.round(5 * k)), gap: Math.round(18 * k) }
     };
   }
 
@@ -306,7 +320,13 @@
       } else {
         item.lines = layoutRuns(ctx, tokenizeInline(b.text || ''), sp.maxW, style);
       }
-      item.height = item.lines.length * item.lineH + (item.pad ? item.pad * 2 : 0);
+      /* 标题下面那道短横线要占高度，否则它会压到下一段上（学 Doocs 的样式，
+         但必须把它算进布局里，不然分页就算错了）。
+         只给 h1/h2 加 —— h3 已经很小，再加线就碎了。 */
+      if (b.type === 'heading' && b.level <= 2) {
+        item.rule = sp.hrule.gap + sp.hrule.h;
+      }
+      item.height = item.lines.length * item.lineH + (item.pad ? item.pad * 2 : 0) + (item.rule || 0);
       out.push(item);
     }
     return out;
@@ -338,11 +358,14 @@
 
       // 标题：得确认它后面还能跟下至少 2 行，否则整个挪到下一页
       if (isHeading(it)) {
-        var need = gap + it.lines.length * lineH;
+        /* it.rule = 标题下那道短横线占的高（含它上面的间距）。
+           必须算进来，否则分页会以为这一页还塞得下，画的时候就溢出。 */
+        var ruleH = it.rule || 0;
+        var need = gap + it.lines.length * lineH + ruleH;
         var next = measured[i + 1];
         if (next) need += sp.gapTight + Math.min(MIN_ORPHAN, next.lines.length) * next.lineH;
         if (need > remain() && cur.length) { flush(); gap = 0; }
-        used += gap + it.lines.length * lineH;
+        used += gap + it.lines.length * lineH + ruleH;
         cur.push({ item: it, from: 0, to: it.lines.length });
         continue;
       }
@@ -420,6 +443,7 @@
     catch (e) {
       return { fg: '#1b1b1f', dim: 'rgba(27,27,31,.62)', rule: 'rgba(27,27,31,.18)',
                codeBg: 'rgba(27,27,31,.06)', codeFg: '#b03060',
+               accent: 'rgba(80,90,190,.88)',
                scrim: 0, scrimColor: 'rgba(255,255,255,0)', luminance: 1, contrast: 21 };
     }
     var L = 0, n = 0;
@@ -445,6 +469,10 @@
          --doc-inline-fg 同一个取向），暗底用偏亮的粉 —— 两者都还压得住
          对比度，不会为了"好看"牺牲可读性。 */
       codeFg: white ? '#ffb4c4' : '#b03060',
+      /* 强调色：标题下那道短横线、引用块的左边条用它。
+         不用主题色（那是界面色，和卡片背景不一定搭），按底色深浅各给一个
+         饱和度合适的值 —— 深底用偏亮的青，亮底用偏深的靛蓝。 */
+      accent: white ? 'rgba(120,220,232,.92)' : 'rgba(80,90,190,.88)',
       scrim: scrim,
       scrimColor: white ? 'rgba(0,0,0,' + scrim.toFixed(3) + ')'
                         : 'rgba(255,255,255,' + scrim.toFixed(3) + ')',
@@ -614,9 +642,14 @@
         ctx.restore();
       }
       if (isQuote) {
+        /* 淡底色 + 左边一根粗条。原来只有那根条 —— 手机上一根细线不够显眼，
+           读者扫过去分不出这是引用。Doocs 的做法是"底色 + 边条"，学它。 */
         ctx.save();
-        ctx.fillStyle = colors.rule;
-        var bw = Math.max(3, Math.round(6 * sp.k));
+        ctx.fillStyle = colors.codeBg;
+        roundRect(ctx, sp.padX, y, W - sp.padX * 2, blockH, Math.round(10 * sp.k));
+        ctx.fill();
+        ctx.fillStyle = colors.accent || colors.rule;
+        var bw = Math.max(4, Math.round(8 * sp.k));
         roundRect(ctx, sp.padX, y, bw, blockH, bw / 2);
         ctx.fill();
         ctx.restore();
@@ -642,7 +675,15 @@
           ctx.restore();
         }
 
+        /* 标题居中（学 Doocs）。卡片是一屏一个主题，居中像杂志内页，
+           层级也更清楚；正文仍然左对齐 —— 中文长段落居中会很难读。
+           居中要按这一行的实际宽度算起点，所以先把这行总宽加出来。 */
         var x = textX;
+        if (b.type === 'heading') {
+          var lineW = 0;
+          for (var wi = 0; wi < line.pieces.length; wi++) lineW += line.pieces[wi].w;
+          x = Math.round((W - lineW) / 2);
+        }
         for (var pi = 0; pi < line.pieces.length; pi++) {
           var p = line.pieces[pi];
           var weight = p.bold ? '700' : String(it.style.weight || '400');
@@ -676,6 +717,19 @@
         ty += it.lineH;
       }
       y += blockH;
+
+      /* 标题下面那道短横线（Doocs 的标志性细节）。居中，用强调色。
+         高度已经在 measureBlocks 里算进 it.rule，这里只负责画。 */
+      if (it.rule) {
+        var lw = sp.hrule.w, lh = sp.hrule.h;
+        var ly = y + sp.hrule.gap;
+        ctx.save();
+        ctx.fillStyle = colors.accent || colors.rule;
+        roundRect(ctx, Math.round((W - lw) / 2), ly, lw, lh, lh / 2);
+        ctx.fill();
+        ctx.restore();
+        y += it.rule;
+      }
     }
   }
 

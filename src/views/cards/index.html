@@ -44,10 +44,25 @@
 
         <!-- 自动模式 -->
         <div id="cd-auto-pane">
-          <textarea class="cd-input" id="cd-src" spellcheck="false"
-            placeholder="把文字粘进来。支持 Markdown —— # 标题、**加粗**、- 列表、> 引用都会排好版。
+          <!-- 格式按钮：和逐页编辑里那排一样。用户不懂 Markdown 也能排版 ——
+               选中文字点一下就行，不用知道 # 和 ** 是什么。 -->
+          <div class="cd-fmt" id="cd-fmt-auto" style="border:1px solid var(--border);border-bottom:0;border-radius:10px 10px 0 0">
+            <button type="button" data-fmt="h1" title="大标题">大标题</button>
+            <button type="button" data-fmt="h2" title="小标题">小标题</button>
+            <span class="sep"></span>
+            <button type="button" data-fmt="bold" title="加粗（选中文字后点）"><b>B</b></button>
+            <button type="button" data-fmt="code" title="行内代码"><i>&lt;/&gt;</i></button>
+            <button type="button" data-fmt="del" title="删除线"><i>S̶</i></button>
+            <span class="sep"></span>
+            <button type="button" data-fmt="ul" title="无序列表">· 列表</button>
+            <button type="button" data-fmt="ol" title="有序列表">1. 编号</button>
+            <button type="button" data-fmt="quote" title="引用">❝ 引用</button>
+            <button type="button" data-fmt="hr" title="分割线">— 分割线</button>
+          </div>
+          <textarea class="cd-input" id="cd-src" spellcheck="false" style="border-radius:0 0 10px 10px"
+            placeholder="把文字粘进来，或者直接写。
 
-也可以点下面的「取当前文档」，直接拿 Markdown 工作台里正在看的那篇。"></textarea>
+不懂 Markdown 没关系 —— 选中文字，点上面的按钮就能排版。"></textarea>
           <div class="cd-src-row">
             <button class="btn" id="cd-pull" type="button" title="拿 Markdown 工作台里正在打开的那篇文档">取当前文档</button>
             <button class="btn" id="cd-clear" type="button">清空</button>
@@ -61,7 +76,7 @@
           <div class="cd-src-row">
             <button class="btn primary" id="cd-add-page" type="button">＋ 加一页</button>
             <button class="btn" id="cd-from-auto" type="button" title="把自动分页的结果拆成每一页，再自己微调">从自动分页导入</button>
-            <span class="cd-hint"><span id="cd-page-count">0</span> 页</span>
+            <span class="cd-hint"><span id="cd-page-count">0</span> 页 · 拖左边的 ⠿ 可调顺序</span>
           </div>
         </div>
       </div>

@@ -154,8 +154,9 @@ function renderPageList() {
       `<option value="${b.id}">${b.name}</option>`)).join('');
 
   host.innerHTML = state.pages.map((pg, i) => `
-    <div class="cd-page" data-i="${i}">
+    <div class="cd-page" data-i="${i}" draggable="false">
       <div class="cd-page-head">
+        <span class="cd-drag" draggable="true" title="拖我可以调整顺序" aria-label="拖动排序">⠿</span>
         <span class="cd-page-no">${i + 1}</span>
         <span class="cd-page-warn" data-warn hidden>内容超出这一张，建议拆开</span>
         <span class="cd-page-tools">
@@ -169,6 +170,19 @@ function renderPageList() {
       <div class="cd-page-bg">
         <label>这一页的背景</label>
         <select data-act="bg">${bgOptions}</select>
+      </div>
+      <div class="cd-fmt">
+        <button type="button" data-fmt="h1" title="大标题">大标题</button>
+        <button type="button" data-fmt="h2" title="小标题">小标题</button>
+        <span class="sep"></span>
+        <button type="button" data-fmt="bold" title="加粗（选中文字后点）"><b>B</b></button>
+        <button type="button" data-fmt="code" title="行内代码"><i>&lt;/&gt;</i></button>
+        <button type="button" data-fmt="del" title="删除线"><i>S̶</i></button>
+        <span class="sep"></span>
+        <button type="button" data-fmt="ul" title="无序列表">· 列表</button>
+        <button type="button" data-fmt="ol" title="有序列表">1. 编号</button>
+        <button type="button" data-fmt="quote" title="引用">❝ 引用</button>
+        <button type="button" data-fmt="hr" title="分割线">— 分割线</button>
       </div>
       <textarea data-act="text" spellcheck="false"
         placeholder="第 ${i + 1} 张卡片的内容…">${escapeHtml(pg.text || '')}</textarea>
@@ -207,9 +221,171 @@ function markOverflow() {
   });
 }
 
+/* ------------------------------------------------------- 格式按钮
+   用户不懂 Markdown，这一排按钮就是飞书云文档那套编写逻辑：
+   **选中文字 → 点按钮 → 自动加标记**。不用记 # 和 ** 是什么。
+
+   底层仍然存 Markdown（不是富文本），所以：
+     · 能直接粘到别处、能和「复制源码」互通
+     · 用户哪天想手写标记也照样有效
+   这比做成 contenteditable 富文本编辑器稳得多（那套东西的粘贴、光标、
+   撤销栈都是坑），而且和 Markdown 工作台是同一套心智。
+
+   两类操作：
+     行内型（加粗/代码/删除线）→ 把选中的文字包起来；没选中就插一对标记
+                                 并把光标放中间，接着打字就是内容。
+     行首型（标题/列表/引用）  → 在当前行（或选中的每一行）开头加前缀；
+                                 已经有同样的前缀就去掉（再点一次取消）。 */
+const FMT = {
+  bold:  { wrap: '**' },
+  code:  { wrap: '`' },
+  del:   { wrap: '~~' },
+  h1:    { prefix: '# ' },
+  h2:    { prefix: '## ' },
+  ul:    { prefix: '- ' },
+  ol:    { prefix: '1. ' },
+  quote: { prefix: '> ' },
+  hr:    { block: '\n---\n' }
+};
+
+function applyFormat(ta, kind) {
+  const f = FMT[kind];
+  if (!f || !ta) return;
+  const v = ta.value;
+  let start = ta.selectionStart, end = ta.selectionEnd;
+
+  if (f.block) {
+    /* 分割线：独占一行插在光标所在行的后面 */
+    const lineEnd = v.indexOf('\n', end);
+    const at = lineEnd < 0 ? v.length : lineEnd;
+    ta.value = v.slice(0, at) + f.block + v.slice(at);
+    ta.selectionStart = ta.selectionEnd = at + f.block.length;
+  } else if (f.wrap) {
+    const w = f.wrap;
+    const sel = v.slice(start, end);
+    /* 已经被同样的标记包着 → 再点一次取消（和飞书的加粗按钮一致） */
+    const before = v.slice(Math.max(0, start - w.length), start);
+    const after = v.slice(end, end + w.length);
+    if (before === w && after === w) {
+      ta.value = v.slice(0, start - w.length) + sel + v.slice(end + w.length);
+      ta.selectionStart = start - w.length;
+      ta.selectionEnd = end - w.length;
+    } else {
+      ta.value = v.slice(0, start) + w + sel + w + v.slice(end);
+      if (sel) { ta.selectionStart = start + w.length; ta.selectionEnd = end + w.length; }
+      else { ta.selectionStart = ta.selectionEnd = start + w.length; }   // 光标放中间
+    }
+  } else if (f.prefix) {
+    /* 行首型：作用于选区覆盖到的每一行（没选就是光标那一行） */
+    let ls = v.lastIndexOf('\n', start - 1) + 1;
+    let le = v.indexOf('\n', end);
+    if (le < 0) le = v.length;
+    const block = v.slice(ls, le);
+    const lines = block.split('\n');
+    /* 每一行都已经有这个前缀 → 整体取消。
+       有序列表的前缀是 `1. `，但第二行可能是 `2. `，所以用正则判断。 */
+    const re = kind === 'ol' ? /^\d+\.\s/ : new RegExp('^' + f.prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const allHave = lines.every((l) => re.test(l));
+    const out = lines.map((l, idx) => {
+      if (allHave) return l.replace(re, '');
+      /* 加前缀前先剥掉别的同类前缀，免得叠成 `- # 标题` */
+      const bare = l.replace(/^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s?)/, '');
+      return (kind === 'ol' ? (idx + 1) + '. ' : f.prefix) + bare;
+    }).join('\n');
+    ta.value = v.slice(0, ls) + out + v.slice(le);
+    ta.selectionStart = ls;
+    ta.selectionEnd = ls + out.length;
+  }
+
+  ta.focus();
+  /* 手动派 input：state.pages 和预览都靠这个事件更新（见 bindPageList） */
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+/* --------------------------------------------------------- 拖拽排序
+   只有把手（.cd-drag）能起拖 —— 整块可拖的话，用户想在文字框里选字
+   就会变成拖动整页。
+
+   落点用「插到目标的前面还是后面」表示，按指针在目标上半还是下半决定；
+   视觉上是一条横线（.drop-before / .drop-after），比整块高亮更准确。
+
+   ⚠ 用 HTML5 拖放而不是自己监听 pointermove：原生拖放自带光标反馈、
+   自动滚动、Esc 取消，都是免费的。 */
+let dragFrom = -1;
+
+function clearDropMarks(host) {
+  host.querySelectorAll('.cd-page').forEach((b) => {
+    b.classList.remove('drop-before', 'drop-after', 'dragging');
+  });
+}
+
+function bindDragSort(host) {
+  host.addEventListener('dragstart', (e) => {
+    const handle = e.target.closest('.cd-drag');
+    if (!handle) { e.preventDefault(); return; }   // 不是从把手起的拖，不受理
+    const box = handle.closest('.cd-page');
+    dragFrom = +box.dataset.i;
+    box.classList.add('dragging');
+    try {
+      e.dataTransfer.effectAllowed = 'move';
+      /* 必须 setData，否则 Firefox 不会触发后续的 dragover/drop */
+      e.dataTransfer.setData('text/plain', String(dragFrom));
+    } catch (err) {}
+  });
+
+  host.addEventListener('dragover', (e) => {
+    if (dragFrom < 0) return;
+    const box = e.target.closest('.cd-page');
+    if (!box) return;
+    e.preventDefault();                       // 不阻止默认就不会触发 drop
+    try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
+    const r = box.getBoundingClientRect();
+    const after = (e.clientY - r.top) > r.height / 2;
+    host.querySelectorAll('.cd-page').forEach((b) => b.classList.remove('drop-before', 'drop-after'));
+    if (+box.dataset.i !== dragFrom) box.classList.add(after ? 'drop-after' : 'drop-before');
+  });
+
+  host.addEventListener('drop', (e) => {
+    if (dragFrom < 0) return;
+    const box = e.target.closest('.cd-page');
+    if (!box) { clearDropMarks(host); dragFrom = -1; return; }
+    e.preventDefault();
+    const r = box.getBoundingClientRect();
+    const after = (e.clientY - r.top) > r.height / 2;
+    let to = +box.dataset.i + (after ? 1 : 0);
+    /* 先把自己摘出来，再插进去。摘掉之后目标下标可能左移一位，
+       所以 to 要跟着减 —— 少了这一步，往后拖会少走一格。 */
+    const moved = state.pages.splice(dragFrom, 1)[0];
+    if (dragFrom < to) to -= 1;
+    state.pages.splice(Math.max(0, Math.min(state.pages.length, to)), 0, moved);
+    clearDropMarks(host);
+    dragFrom = -1;
+    renderPageList();
+    draw();
+  });
+
+  /* 拖到空白处松手、或按 Esc 取消 → 把标记清干净，别留一条横线在那儿 */
+  host.addEventListener('dragend', () => { clearDropMarks(host); dragFrom = -1; });
+  host.addEventListener('dragleave', (e) => {
+    if (!e.relatedTarget || !host.contains(e.relatedTarget)) {
+      host.querySelectorAll('.cd-page').forEach((b) => b.classList.remove('drop-before', 'drop-after'));
+    }
+  });
+}
+
 function bindPageList() {
   const host = el('cd-pages');
   if (!host) return;
+
+  /* 格式按钮：只改文字框的内容，**不重建列表**（重建会丢焦点和选区）。
+     放在结构性操作之前判断。 */
+  host.addEventListener('click', (e) => {
+    const fb = e.target.closest('button[data-fmt]');
+    if (!fb) return;
+    const box = fb.closest('.cd-page');
+    const ta = box && box.querySelector('textarea[data-act="text"]');
+    if (ta) applyFormat(ta, fb.dataset.fmt);
+  });
 
   /* 结构性操作（增删移）→ 改数据、重建列表、重画预览 */
   host.addEventListener('click', (e) => {
@@ -239,6 +415,8 @@ function bindPageList() {
     state.pages[i].text = ta.value;
     schedule();
   });
+
+  bindDragSort(host);
 
   host.addEventListener('change', (e) => {
     const sel = e.target.closest('select[data-act="bg"]');
@@ -679,6 +857,15 @@ function bind() {
 
   const src = el('cd-src');
   if (src) src.addEventListener('input', schedule);
+
+  /* 自动模式那一排格式按钮，作用在那个大文本框上 */
+  const fmtAuto = el('cd-fmt-auto');
+  if (fmtAuto && src) {
+    fmtAuto.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-fmt]');
+      if (b) applyFormat(src, b.dataset.fmt);
+    });
+  }
 
   const clear = el('cd-clear');
   if (clear) clear.addEventListener('click', () => { if (src) { src.value = ''; draw(); src.focus(); } });
