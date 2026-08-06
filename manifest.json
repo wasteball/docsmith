@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Docsmith · 文匠",
   "short_name": "Docsmith",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "读 Markdown、导出 Word/PDF/网页、把文字一键转成小红书/抖音图文卡片、生成分享链接。文件存进你自己的云，全部能力在浏览器侧边一个面板里。",
   "icons": {
     "16": "src/icons/icon-16.png",

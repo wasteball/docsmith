@@ -1294,8 +1294,10 @@
     table: ['border-collapse'],
     cell: ['border-top', 'border-right', 'border-bottom', 'border-left', 'padding',
            'background-color', 'text-align', 'vertical-align'],
+    /* border-left 留着（引用块那条竖条靠它）；`border` 简写去掉 ——
+       它在没有边框的元素上会展开成 `0px none rgb(...)`，纯噪音。 */
     block: ['margin-top', 'margin-bottom', 'padding', 'background-color',
-            'border-radius', 'border-left', 'border', 'white-space', 'overflow-wrap'],
+            'border-radius', 'border-left', 'white-space', 'overflow-wrap'],
     /* 代码要保留等宽字体 —— 那是代码的识别特征，属于内容语义的一部分，
        和上面「不抄 font-family」的理由不冲突。 */
     code: ['font-family', 'font-size', 'background-color', 'color', 'padding',
@@ -1314,7 +1316,14 @@
          抄过去等于给整篇文档硬编码对齐方式，还白涨一截体积。
          真正需要居中的（数学公式块）值是 center，照样抄得到。 */
       if (v === 'none' || v === 'normal' || v === 'auto' || v === '0px' ||
-          v === 'start' || v === 'rgba(0, 0, 0, 0)' || v === 'transparent') continue;
+          v === 'start' || v === 'rgba(0, 0, 0, 0)' || v === 'transparent' ||
+          v === '400' || v === 'currentcolor') continue;
+      /* ⚠ 边框的简写值长这样：`0px none rgb(43, 47, 54)` —— 它**不等于**
+         上面任何一个字面量，所以会被抄过去。而它的意思就是"没有边框"，
+         纯属噪音：实测一份 29KB 的文档里，光是这种 `0px none rgb(...)`
+         就占掉几十 KB（每个 td 抄四条、每个 p 抄两条）。
+         凡是以 `0px none` 开头的一律跳过。 */
+      if (v.indexOf('0px none') === 0) continue;
       out.push(props[i] + ':' + v);
     }
     if (out.length) {
@@ -1322,6 +1331,22 @@
       dst.setAttribute('style', (prev ? prev + ';' : '') + out.join(';'));
     }
   }
+
+  /* 哪些元素**值得**内联样式。
+
+     为什么要挑：一份 63KB 的手册渲染出来有近 3000 个节点，
+     给每一个都抄一串 style，产出的 HTML 有 566KB —— 19 倍膨胀。
+     而其中绝大多数是 <span>（代码高亮的 token）之类会**自然继承**父元素样式的
+     行内元素，抄了纯属浪费；体积大到一定程度还会拖慢剪贴板写入。
+
+     只有「样式不能靠继承得到」的那些才需要抄：
+       · 块级容器（标题、段落、引用、代码块…）—— 间距、底色、边框
+       · 表格和单元格 —— 边框是表格的命，接收方一定没有
+       · 加粗/斜体/删除线/行内代码 —— 它们的样式来自 class 而非标签语义
+     其余（span、a、em 之类）跳过，让它们继承。 */
+  /* TR / THEAD / TBODY 不在里面：行的视觉完全由 td/th 的边框和底色决定，
+     给它们抄样式是纯浪费（实测 tr 白占 7.8KB）。 */
+  var STYLE_WORTHY = /^(H[1-6]|P|LI|UL|OL|BLOCKQUOTE|PRE|CODE|TABLE|TD|TH|HR|DIV|DETAILS|SUMMARY|STRONG|B|EM|I|DEL|S|MARK)$/;
 
   /**
    * 把 live DOM 的计算样式抄进克隆体的内联 style。
@@ -1336,6 +1361,9 @@
     if (a.length !== b.length) return false;
     for (var i = 0; i < a.length; i++) {
       var el = a[i], to = b[i], tag = el.tagName;
+      /* 不在白名单里的（span、a、em…）跳过 —— 它们继承父元素就够了。
+         见 STYLE_WORTHY 上面那段：不挑的话 63KB 的文档会产出 566KB 的 HTML。 */
+      if (!STYLE_WORTHY.test(tag)) continue;
       if (tag === 'TABLE') { pickStyles(el, to, COPY_PROPS.table); continue; }
       if (tag === 'TD' || tag === 'TH') { pickStyles(el, to, COPY_PROPS.cell); continue; }
       if (tag === 'PRE' || tag === 'CODE') { pickStyles(el, to, COPY_PROPS.code); continue; }
@@ -1407,6 +1435,58 @@
     return copy.innerHTML;
   }
 
+  /**
+   * 用「选中 + execCommand('copy')」复制富文本。
+   *
+   * 这是比 clipboard API **更可靠**的一条路，不是退化方案：
+   *   · 浏览器从真实选区复制时，会自动把 text/html 和 text/plain 一起放进
+   *     剪贴板 —— 富文本粘贴要的正是这个组合；
+   *   · 不需要 clipboard-write 权限，也不要求文档"有焦点"。
+   *     clipboard.write 在嵌入文档 / 侧边栏里经常被拒（NotAllowedError：
+   *     Write permission denied），而这条路照样能成。
+   *
+   * 做法：把 HTML 塞进一个**离屏但可选中**的容器，选中它，copy，再撤掉。
+   * 容器不能用 display:none / visibility:hidden —— 那样选区是空的，复制不到东西。
+   * 所以用 position:fixed + 挪到视口外 + opacity:0，它仍然"可被选中"。
+   *
+   * @returns {boolean} 成功与否
+   */
+  function copyViaSelection(html) {
+    var host = document.createElement('div');
+    /* contenteditable 让它在某些浏览器里更容易被完整选中；
+       白底黑字是为了避免继承到深色主题的颜色（复制出来的 html 里
+       已经带内联样式了，这里只是保证选区本身正常）。 */
+    host.setAttribute('contenteditable', 'true');
+    host.setAttribute('style',
+      'position:fixed;left:-99999px;top:0;width:800px;max-height:100vh;' +
+      'overflow:hidden;opacity:0;pointer-events:none;background:#fff;color:#000;' +
+      'white-space:normal;-webkit-user-select:text;user-select:text');
+    host.innerHTML = html;
+    document.body.appendChild(host);
+
+    var sel = window.getSelection();
+    var saved = [];
+    /* 用户可能正选着东西（比如刚划了一段字）。复制完要还回去，
+       不然他会发现自己的选区莫名其妙没了。 */
+    for (var i = 0; i < sel.rangeCount; i++) saved.push(sel.getRangeAt(i));
+
+    var okFlag = false;
+    try {
+      var range = document.createRange();
+      range.selectNodeContents(host);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      okFlag = document.execCommand('copy');
+    } catch (e) {
+      okFlag = false;
+    } finally {
+      sel.removeAllRanges();
+      for (var j = 0; j < saved.length; j++) { try { sel.addRange(saved[j]); } catch (e) {} }
+      document.body.removeChild(host);
+    }
+    return okFlag;
+  }
+
   /** 富文本复制：往剪贴板同时写 text/html 和 text/plain。 */
   function copyRich(btn) {
     if (!currentId) { toast('先打开一份文档', 'err'); return; }
@@ -1422,13 +1502,34 @@
       if (btn) flashBtn(btn, '已复制');
       toast('已复制 · 去飞书 / WPS / Word 里直接粘贴即可', 'ok');
     };
-    /* 退路：写不了 text/html 就退成纯 HTML 源码（起码内容不丢），
-       并且**说清楚**发生了什么，别让用户以为粘出来一堆标签是 bug。 */
+
+    /* ⚠ 兜底**绝对不能**是 writeText(html)。
+
+       原来就是那么写的，结果用户粘到飞书里得到的是**纯文字**（标题不是标题、
+       表格变成制表符分隔的一行行字）—— 因为 writeText 写的是 text/plain，
+       接收方拿到的就是"一大坨字符串"，而那坨字符串恰好是 566KB 的 HTML 源码。
+       用户看到的现象：「粘贴到飞书云文档只是把文字粘贴过去了，效果完全没有」。
+
+       正确的兜底是 execCommand('copy') 那条老路：它从**一个真实的 DOM 选区**
+       复制，浏览器会自动同时放 text/html 和 text/plain 两种格式进剪贴板 ——
+       正是富文本粘贴需要的。这条路不依赖 clipboard 权限，也不要求文档有焦点，
+       在 clipboard API 被拒的场合反而更可靠。 */
     var fallback = function () {
-      copyText(html, btn);
-      toast('这个环境只允许复制文本，粘过去可能是 HTML 源码', 'err', 4200);
+      /* 走到这儿说明选区路和 clipboard API 都没成（很罕见）。
+         至少把**纯文字**放进去 —— 注意是 plain 不是 html：
+         写 html 的话用户粘到飞书会得到一坨 566KB 的源码，那比没复制更糟，
+         而且他会以为功能坏了（这正是修这个 bug 的起因）。 */
+      copyText(plain, btn);
+      toast('这个环境不允许富文本复制，已复制纯文字', 'err', 4200);
     };
 
+    /* 先走选区那条路 —— 它不需要 clipboard 权限、不要求文档有焦点，
+       在这个环境里成功率最高（实测 clipboard.write 在合并进外壳的文档里
+       会直接被拒：NotAllowedError: Write permission denied）。
+       成了就结束，省掉后面所有分支。 */
+    if (copyViaSelection(html)) { ok(); return; }
+
+    /* 选区路没成（极少数浏览器禁了 execCommand）→ 再试 clipboard API。 */
     if (!(navigator.clipboard && navigator.clipboard.write && window.ClipboardItem)) { fallback(); return; }
     try { window.focus(); } catch (e) {}
     var item;
