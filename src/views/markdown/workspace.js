@@ -1283,34 +1283,23 @@
        代价是 Word 不认 Markdown，但那本来就该走「导出 → Word」
        （已经有那个功能，而且是真正的 Open XML 排版，比粘贴强得多）。
 
-     一处替换：mermaid 围栏换成图片链接。用户实测飞书和 WPS 都把
-     ```mermaid 当普通代码块展示（一堆 flowchart TD 源码），图没了。
-     换成 Markdown 的图片语法 + data URI，两边就都能看到图。 */
+     **不对内容做任何加工**，包括 mermaid。曾经想"贴心"地把 ```mermaid
+     换成图片，那是画蛇添足：飞书和 WPS 本来就能渲染 mermaid，替换反而
+     把它们的能力废掉、还把可编辑的图表变成一张死图。
+     复制源码就是复制源码。 */
 
-  /**
-   * 拿来复制的 Markdown 源码。
-   * 以文档原文为准（不是从渲染结果反推），只把图表换成图片。
-   */
+  /** 拿来复制的 Markdown —— 就是文档原文，不做任何加工。 */
   function markdownForCopy() {
     var d = curDoc();
-    var src = (d && d.text != null) ? d.text : '';
-    if (!src) return '';
+    /* 就是原文，一个字都不动。
 
-    /* 把每个 mermaid 围栏替换成 ![图表](data:image/svg+xml,…)。
-       按出现顺序和页面上渲染好的 SVG 一一对应 —— 两者顺序天然一致
-       （renderMermaid 是按 DOM 顺序逐个渲染的）。
-       没渲染出来的那些保留原源码，宁可显示成代码块也别把内容弄丢。 */
-    var svgs = preview.querySelectorAll('.mermaid-render svg');
-    var i = 0;
-    return src.replace(/(^|\n)[ \t]*(`{3,}|~{3,})[ \t]*mermaid[ \t]*\n([\s\S]*?)\n[ \t]*\2[ \t]*(?=\n|$)/gi,
-      function (whole, lead) {
-        var svg = svgs[i++];
-        if (!svg) return whole;
-        try {
-          var s = new XMLSerializer().serializeToString(svg);
-          return lead + '![图表](data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s) + ')';
-        } catch (e) { return whole; }
-      });
+       ⚠ 这里曾经把 ```mermaid 围栏替换成 `![图表](data:image/svg+xml,…)`，
+       理由是"飞书和 WPS 把 mermaid 显示成代码块"。那是**想多了**：
+         · 复制源码就该给源码。擅自改内容，用户拿到的就不是他那份文档了；
+         · 飞书和 WPS 本来就支持 mermaid 渲染 —— 替换成图片反而把它们
+           自己的渲染能力废掉了，图还从"可编辑的图表"退化成一张死图。
+       原样给出去，接收方爱怎么渲染怎么渲染，这才是「复制源码」的语义。 */
+    return (d && d.text != null) ? d.text : '';
   }
 
   /**
