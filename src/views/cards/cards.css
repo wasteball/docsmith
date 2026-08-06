@@ -170,6 +170,47 @@ html[data-embed] .cd-brand { display: none; }
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
 }
+
+/* 拖拽把手。只有它能起拖 —— 整块可拖的话，用户想在文字框里选字就会
+   变成拖动整页，非常烦人。 */
+.cd-drag {
+  cursor: grab; color: var(--text-mute);
+  font-size: 14px; line-height: 1;
+  padding: 2px 3px; border-radius: 4px;
+  user-select: none;
+}
+.cd-drag:hover { color: var(--text); background: var(--surface); }
+.cd-drag:active { cursor: grabbing; }
+
+/* 正在被拖的那一页：压低存在感，让人注意落点而不是它本身 */
+.cd-page.dragging { opacity: .4; }
+/* 落点提示：一条明显的横线，比"整块高亮"更准确地表达"会插到这里" */
+.cd-page.drop-before { box-shadow: 0 -3px 0 0 var(--accent); }
+.cd-page.drop-after  { box-shadow: 0 3px 0 0 var(--accent); }
+
+/* ---------------------------------------------------------- 格式按钮
+   用户不懂 Markdown。这一排按钮就是飞书云文档那套编写逻辑：
+   选中文字 → 点按钮 → 自动加标记。底层仍然是 Markdown（能粘、能互通），
+   但用户不必知道 # 和 ** 是什么。 */
+.cd-fmt {
+  display: flex; align-items: center; gap: 3px; flex-wrap: wrap;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.cd-fmt button {
+  border: 1px solid transparent; background: transparent;
+  color: var(--text-dim); border-radius: 6px;
+  padding: 4px 8px; font-size: 12.5px; font-family: inherit;
+  line-height: 1.4; white-space: nowrap;
+}
+.cd-fmt button:hover { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+.cd-fmt button:active { transform: translateY(1px); }
+.cd-fmt .sep {
+  width: 1px; height: 16px; background: var(--border); margin: 0 3px;
+}
+.cd-fmt b { font-weight: 700; }
+.cd-fmt i { font-style: normal; }
 .cd-page-no {
   font: 600 12px/1 var(--mono); color: var(--text-mute);
   font-variant-numeric: tabular-nums;
