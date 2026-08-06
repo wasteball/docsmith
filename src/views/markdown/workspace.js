@@ -1436,22 +1436,27 @@
   }
 
   /**
-   * 用「选中 + execCommand('copy')」复制富文本。
+   * 用「选中 + execCommand('copy')」复制富文本，并**精确控制两种格式**。
    *
    * 这是比 clipboard API **更可靠**的一条路，不是退化方案：
-   *   · 浏览器从真实选区复制时，会自动把 text/html 和 text/plain 一起放进
-   *     剪贴板 —— 富文本粘贴要的正是这个组合；
    *   · 不需要 clipboard-write 权限，也不要求文档"有焦点"。
    *     clipboard.write 在嵌入文档 / 侧边栏里经常被拒（NotAllowedError：
    *     Write permission denied），而这条路照样能成。
    *
-   * 做法：把 HTML 塞进一个**离屏但可选中**的容器，选中它，copy，再撤掉。
-   * 容器不能用 display:none / visibility:hidden —— 那样选区是空的，复制不到东西。
-   * 所以用 position:fixed + 挪到视口外 + opacity:0，它仍然"可被选中"。
+   * ⚠ 但**不能只靠选区**：浏览器会把选区里的可见文字当成 text/plain，
+   * 那样飞书拿到的是拍平的纯文字（没有 # 和 |），照样没排版。
+   * 所以这里挂一个一次性的 copy 事件监听器，在事件里用
+   * `clipboardData.setData` 把两种格式各自写准：
+   *     text/html  → 带内联样式的 HTML（WPS / Word / 公众号 认这个）
+   *     text/plain → Markdown 原文（飞书认这个，见 markdownForPlain 的说明）
+   * 再 preventDefault，阻止浏览器用选区里的默认内容覆盖掉我们设的值。
+   *
+   * 选区仍然要做：没有非空选区，execCommand('copy') 在多数浏览器里
+   * 直接返回 false，copy 事件也不会触发。选区在这里的作用是"把闸门打开"。
    *
    * @returns {boolean} 成功与否
    */
-  function copyViaSelection(html) {
+  function copyViaSelection(html, plain) {
     var host = document.createElement('div');
     /* contenteditable 让它在某些浏览器里更容易被完整选中；
        白底黑字是为了避免继承到深色主题的颜色（复制出来的 html 里
@@ -1470,6 +1475,22 @@
        不然他会发现自己的选区莫名其妙没了。 */
     for (var i = 0; i < sel.rangeCount; i++) saved.push(sel.getRangeAt(i));
 
+    /* 一次性的 copy 监听器：把两种格式各自写准，再 preventDefault
+       阻止浏览器用选区的默认内容覆盖。用 capture 阶段抢在别人之前。 */
+    var fired = false;
+    var onCopy = function (e) {
+      fired = true;
+      try {
+        var dt = e.clipboardData;
+        if (dt) {
+          dt.setData('text/html', html);
+          dt.setData('text/plain', plain || '');
+          e.preventDefault();
+        }
+      } catch (err) { /* 设不进去就让浏览器用默认行为，起码还有内容 */ }
+    };
+    document.addEventListener('copy', onCopy, true);
+
     var okFlag = false;
     try {
       var range = document.createRange();
@@ -1477,14 +1498,58 @@
       sel.removeAllRanges();
       sel.addRange(range);
       okFlag = document.execCommand('copy');
+      /* execCommand 返回 true 但事件没触发，说明什么都没真的写进去 ——
+         当成失败，让调用方去走 clipboard API 那条路。 */
+      if (!fired) okFlag = false;
     } catch (e) {
       okFlag = false;
     } finally {
+      document.removeEventListener('copy', onCopy, true);
       sel.removeAllRanges();
       for (var j = 0; j < saved.length; j++) { try { sel.addRange(saved[j]); } catch (e) {} }
       document.body.removeChild(host);
     }
     return okFlag;
+  }
+
+  /**
+   * 给 text/plain 用的那一份。**放 Markdown 原文，不放拍平的纯文字。**
+   *
+   * 为什么这么定（实测出来的，不是猜的）：
+   * 飞书云文档是自研的 Block 结构化编辑器，不是通用 HTML 富文本引擎。
+   * 它粘贴时只保留最基础的标签，我们辛苦抄进去的内联样式会被整片过滤掉 ——
+   * 所以 text/html 那条路在飞书上基本无效（WPS 反而认得很好）。
+   * 但飞书**会把粘进来的纯文本按 Markdown 解析**：# 变标题、| 变表格、
+   * ** 变加粗。用户实测「粘 Markdown 原文，飞书是有排版的」。
+   *
+   * 于是策略变成「两份都给对的东西」：
+   *   · text/html  → WPS / Word / 公众号 用，带内联样式
+   *   · text/plain → 飞书用，给 Markdown 原文
+   * 谁认哪种谁取哪种，不用用户操心，也不用加第二颗按钮。
+   *
+   * 一处替换：mermaid 代码块换成图片链接。用户实测飞书和 WPS 都把
+   * ```mermaid 当普通代码块展示（一堆 flowchart TD 源码），图没了。
+   * 这里换成 Markdown 的图片语法 + data URI，两边就都能看到图。
+   */
+  function markdownForPlain() {
+    var d = curDoc();
+    var src = (d && d.text != null) ? d.text : '';
+    if (!src) return preview.innerText || preview.textContent || '';
+
+    /* 把每个 mermaid 围栏替换成 ![图表](data:image/svg+xml,…)。
+       按出现顺序和页面上渲染好的 SVG 一一对应 —— 两者顺序天然一致
+       （renderMermaid 是按 DOM 顺序逐个渲染的）。 */
+    var svgs = preview.querySelectorAll('.mermaid-render svg');
+    var i = 0;
+    return src.replace(/(^|\n)[ \t]*(`{3,}|~{3,})[ \t]*mermaid[ \t]*\n([\s\S]*?)\n[ \t]*\2[ \t]*(?=\n|$)/gi,
+      function (whole, lead) {
+        var svg = svgs[i++];
+        if (!svg) return whole;                 // 没渲染出来就留着源码，别把内容弄没
+        try {
+          var s = new XMLSerializer().serializeToString(svg);
+          return lead + '![图表](data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s) + ')';
+        } catch (e) { return whole; }
+      });
   }
 
   /** 富文本复制：往剪贴板同时写 text/html 和 text/plain。 */
@@ -1493,7 +1558,7 @@
     var html, plain;
     try {
       html = richDocHtml();
-      plain = preview.innerText || preview.textContent || '';
+      plain = markdownForPlain();
     } catch (e) {
       toast('生成内容失败：' + ((e && e.message) || '未知错误'), 'err');
       return;
@@ -1527,7 +1592,7 @@
        在这个环境里成功率最高（实测 clipboard.write 在合并进外壳的文档里
        会直接被拒：NotAllowedError: Write permission denied）。
        成了就结束，省掉后面所有分支。 */
-    if (copyViaSelection(html)) { ok(); return; }
+    if (copyViaSelection(html, plain)) { ok(); return; }
 
     /* 选区路没成（极少数浏览器禁了 execCommand）→ 再试 clipboard API。 */
     if (!(navigator.clipboard && navigator.clipboard.write && window.ClipboardItem)) { fallback(); return; }
