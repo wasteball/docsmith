@@ -16,7 +16,7 @@
 export const BRAND = {
   name: 'Docsmith',
   nameZh: '文匠',
-  tagline: '文档，从此顺手',
+  tagline: '文档和图文，从此顺手',
   /* 侧栏折叠时显示的单字标记 */
   mark: 'D',
   repo: 'https://github.com/YOUR-NAME/docsmith',

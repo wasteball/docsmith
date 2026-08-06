@@ -11,7 +11,8 @@
  *   #status、#settingsBtn 之类），getElementById 返回的是 DOM 里靠前那个。
  *   这个坑在 library.js 里踩过好几次，别再踩第四次。
  * ===================================================================== */
-import { toShell } from '../../core/bus.js';
+import { toShell, on as onBus } from '../../core/bus.js';
+import * as prefs from '../../core/prefs.js';
 
 /* 本能力的根容器。独立打开这一页时是 body；被外壳挂进来时是标了
    data-ds-host="cards" 的那个 div。 */
@@ -58,6 +59,46 @@ let rendered = [];      // 当前画出来的 canvas 列表
 let renderSeq = 0;      // 防止慢的那一轮盖掉快的那一轮
 let overflows = [];     // 手动模式下装不下的页序号（0-based，含封面偏移）
 
+/* ------------------------------------------------------------- 记忆
+   把样式参数记住，下次打开还是你调好的样子。
+
+   **只记参数，不记内容**：
+     · 你写的文字不存 —— 用户明确要求过「不要给浏览器记最近文档」，
+       卡片草稿属于同一类东西，同样的取向。
+     · 上传的背景图 / logo 不存 —— 要转成 base64 才能进 localStorage，
+       一张几百 KB，很快撑爆配额（项目里因为 9.6MB 的 recent 缓存栽过一次）。
+       所以每次重开要重新选一次图，这是刻意的取舍。
+
+   键名统一挂在 `cards.*` 下，并且**在 core/prefs.js 的 DEFAULTS 里登记过** ——
+   那张表是「记住了我什么」面板的唯一依据，不登记的话用户看不到、也删不掉。
+   （同一个设置千万别搞出两个键名，那个坑刚踩过：见 reading.* vs md:*。） */
+const REMEMBER = [
+  ['mode', 'cards.mode'], ['ratio', 'cards.ratio'], ['scale', 'cards.scale'],
+  ['background', 'cards.background'], ['blur', 'cards.blur'], ['fontScale', 'cards.fontScale'],
+  ['wmText', 'cards.wmText'], ['wmPos', 'cards.wmPos'], ['wmOpacity', 'cards.wmOpacity'],
+  ['pageNo', 'cards.pageNo'], ['cover', 'cards.cover']
+];
+
+function loadPrefs() {
+  for (const [field, key] of REMEMBER) {
+    const v = prefs.get(key);
+    if (v !== undefined && v !== null) state[field] = v;
+  }
+  /* 上传的图没记，所以模糊度那一栏该藏着；mode 决定显示哪个面板。 */
+  if (state.mode !== 'auto' && state.mode !== 'manual') state.mode = 'auto';
+}
+
+/* 攒一下再写盘：拖滑块会连发几十次 input，没必要每次都落盘。 */
+let saveTimer = 0;
+function savePrefs() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const patch = {};
+    for (const [field, key] of REMEMBER) patch[key] = state[field];
+    try { prefs.setMany(patch); } catch (e) { /* 存不下不该影响使用 */ }
+  }, 400);
+}
+
 /* ------------------------------------------------------- 控件：分段选择 */
 function buildSeg(host, items, get, set) {
   if (!host) return;
@@ -80,6 +121,9 @@ function buildSeg(host, items, get, set) {
 }
 
 function sync() {
+  /* 所有控件的改动最后都会走到 sync()（分段按钮、滑杆、勾选框都调了它），
+     所以在这儿存盘一次就够，不用在每个 handler 里各写一遍 —— 那样早晚漏一个。 */
+  savePrefs();
   root().querySelectorAll('.cd-seg').forEach((s) => { if (s._sync) s._sync(); });
   const r = (window.DSCards.RATIOS.find((x) => x.id === state.ratio) || {});
   const hint = el('cd-ratio-hint');
@@ -140,6 +184,10 @@ function renderPageList() {
   if (cnt) cnt.textContent = String(state.pages.length);
   markOverflow();
 }
+
+/** 给某个输入控件填值。模块级的 function 声明 —— 会被提升，
+    所以上面注册的 bus 监听器里引用它是安全的（不依赖执行顺序）。 */
+function setVal(id, v) { const e = el(id); if (e) e.value = v; }
 
 function escapeHtml(s) {
   return String(s == null ? '' : s)
@@ -671,12 +719,12 @@ function bind() {
   range('cd-wm-op', 'wmOpacity', (v) => +v / 100);
 
   const wmText = el('cd-wm-text');
-  if (wmText) wmText.addEventListener('input', () => { state.wmText = wmText.value.trim(); schedule(); });
+  if (wmText) wmText.addEventListener('input', () => { state.wmText = wmText.value.trim(); savePrefs(); schedule(); });
 
   const pageNo = el('cd-pageno');
-  if (pageNo) pageNo.addEventListener('change', () => { state.pageNo = pageNo.checked; schedule(); });
+  if (pageNo) pageNo.addEventListener('change', () => { state.pageNo = pageNo.checked; savePrefs(); schedule(); });
   const cover = el('cd-cover');
-  if (cover) cover.addEventListener('change', () => { state.cover = cover.checked; schedule(); });
+  if (cover) cover.addEventListener('change', () => { state.cover = cover.checked; savePrefs(); schedule(); });
 
   // 背景图
   const bgPick = el('cd-bgpick'), bgFile = el('cd-bgfile');
@@ -732,8 +780,63 @@ function bind() {
     copy.addEventListener('click', copyFirst);
   }
 
+  /* 用户在「记住了我什么」里点了「忘掉」→ 外壳广播 setting，这里跟着回默认。
+     不听这条消息的话：偏好已经被清了，但界面还停在旧值上，用户以为没生效，
+     等下次重开才发现变了 —— 那种延迟生效最让人困惑。 */
+  onBus('setting', (d) => {
+    const key = d && d.key;
+    if (!key || key.indexOf('cards.') !== 0) return;
+    const hit = REMEMBER.find(([, k]) => k === key);
+    if (!hit) return;
+    state[hit[0]] = d.value;
+    /* 把这一项对应的控件同步回去。分段按钮由 sync() 统一刷，
+       这几个输入类的要自己填。 */
+    const back = {
+      blur: () => setVal('cd-blur', state.blur),
+      fontScale: () => setVal('cd-font', Math.round(state.fontScale * 100)),
+      wmOpacity: () => setVal('cd-wm-op', Math.round(state.wmOpacity * 100)),
+      wmText: () => setVal('cd-wm-text', state.wmText),
+      pageNo: () => { const e = el('cd-pageno'); if (e) e.checked = !!state.pageNo; },
+      cover: () => { const e = el('cd-cover'); if (e) e.checked = !!state.cover; },
+      mode: () => {
+        const a = el('cd-auto-pane'), m = el('cd-manual-pane');
+        if (a) a.hidden = state.mode !== 'auto';
+        if (m) m.hidden = state.mode !== 'manual';
+      }
+    };
+    if (back[hit[0]]) back[hit[0]]();
+    /* ⚠ 这里不能调 sync() —— 它会 savePrefs()，把刚被「忘掉」的值又写回去。
+       只刷选中态和读数即可。 */
+    root().querySelectorAll('.cd-seg').forEach((s) => { if (s._sync) s._sync(); });
+    const bv = el('cd-blur-val'); if (bv) bv.textContent = state.blur + ' px';
+    const fv = el('cd-font-val'); if (fv) fv.textContent = Math.round(state.fontScale * 100) + '%';
+    const ov = el('cd-wm-op-val'); if (ov) ov.textContent = Math.round(state.wmOpacity * 100) + '%';
+    schedule();
+  });
+
   bindLightbox();
-  /* 先把页列表建出来。虽然手动面板默认是藏着的，但用户一切过去就得有东西，
+
+  /* ---- 把记住的参数灌回界面 ----
+     顺序要紧：先 loadPrefs 改 state，再把**输入类控件**的值写回去
+     （分段按钮的选中态由下面 sync() 统一刷，滑杆和输入框得自己填），
+     最后才 sync()/draw()。
+     顺序错了就是「记住了但界面显示的还是默认值」—— 那种半生效状态
+     比不记还糟，用户会以为记忆坏了。 */
+  loadPrefs();
+  setVal('cd-blur', state.blur);
+  setVal('cd-font', Math.round(state.fontScale * 100));
+  setVal('cd-wm-op', Math.round(state.wmOpacity * 100));
+  setVal('cd-wm-text', state.wmText);
+  const pn = el('cd-pageno'); if (pn) pn.checked = !!state.pageNo;
+  const cv = el('cd-cover'); if (cv) cv.checked = !!state.cover;
+  /* 模式面板的显隐要跟着记住的 mode 走。不能调 setMode()——那个函数会
+     在 auto→manual 时顺手导入自动分页的结果，而这会儿两边都还是空的，
+     没必要也没内容可导。直接摆好面板即可。 */
+  const ap = el('cd-auto-pane'), mp = el('cd-manual-pane');
+  if (ap) ap.hidden = state.mode !== 'auto';
+  if (mp) mp.hidden = state.mode !== 'manual';
+
+  /* 先把页列表建出来。虽然手动面板可能是藏着的，但用户一切过去就得有东西，
      而且 renderPageList 会顺手把「几页」那个计数填上。 */
   renderPageList();
   sync();

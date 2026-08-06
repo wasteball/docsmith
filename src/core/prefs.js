@@ -63,6 +63,23 @@ const DEFAULTS = {
   'files.autoCopy': true,
   'files.concurrency': 2,
 
+  /* --- 图文卡片 ---
+     只记**样式参数**，不记你写的内容，也不记上传的背景图/logo。
+     内容不记是刻意的：用户明确要求过"不要给浏览器记最近文档"，
+     草稿属于同一类东西。图片不记是因为它得转成 base64 塞进 localStorage，
+     几百 KB 一张，很快就把配额撑满了。 */
+  'cards.mode': 'auto',             // auto | manual
+  'cards.ratio': '3:4',
+  'cards.scale': 1,                 // 1 = 标准，2 = 高清
+  'cards.background': 'paper',
+  'cards.blur': 18,
+  'cards.fontScale': 1,
+  'cards.wmText': '',               // 水印文字（这个算偏好，不算内容）
+  'cards.wmPos': 'br',
+  'cards.wmOpacity': 0.55,
+  'cards.pageNo': true,
+  'cards.cover': false,
+
   /* --- 提示 --- */
   'tips.dismissed': [],             // 用户点过"不再提示"的那些
 };

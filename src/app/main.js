@@ -856,6 +856,29 @@ const MEMORY_GROUPS = [
       { key: 'files.dlPptx', name: '下载 PPT 时转成' },
     ],
   },
+  {
+    /* 图文卡片只记**样式参数**，不记你写的内容、也不记上传的背景图/logo。
+       内容不记是刻意的（和「不给浏览器记最近文档」同一个取向）；
+       图片不记是因为要转 base64 才能进 localStorage，一张几百 KB，
+       很快就把配额撑满 —— 项目为此栽过一次（9.6MB 的 recent 缓存）。
+       这一段的每个 key 都必须在 core/prefs.js 的 DEFAULTS 里登记过，
+       否则 memValue() 拿不到默认值，「忘掉」也无从判断。 */
+    title: '图文卡片的样式',
+    note: '你调好的比例、背景、水印这些，下次打开还是这样。你写的文字不会被记住。',
+    items: [
+      { key: 'cards.mode', name: '默认模式' },
+      { key: 'cards.ratio', name: '长宽比' },
+      { key: 'cards.scale', name: '清晰度' },
+      { key: 'cards.background', name: '背景' },
+      { key: 'cards.fontScale', name: '字号' },
+      { key: 'cards.blur', name: '背景模糊' },
+      { key: 'cards.wmText', name: '水印文字' },
+      { key: 'cards.wmPos', name: '水印位置' },
+      { key: 'cards.wmOpacity', name: '水印透明度' },
+      { key: 'cards.pageNo', name: '显示页码' },
+      { key: 'cards.cover', name: '多做一张封面' },
+    ],
+  },
 ];
 
 /** 把一项记忆算成 { text 展示文字, set 是否偏离了默认（值得给「忘掉」） }。 */
@@ -893,6 +916,27 @@ function memValue(item) {
     const map = { html: '网页', md: '源文件' };
     return { text: map[v] || v || '—', set: explicit };
   }
+  /* 图文卡片那几项不在设置面板的 SECTIONS 里（它们是能力页自己的控件），
+     所以 fieldOf() 拿不到，得在这里自己翻译成人话。
+     不翻译的话面板上会显示 'br'、'true'、'0.55' 这种原始值 —— 那等于没说，
+     用户看不懂也就无从判断要不要「忘掉」。 */
+  if (item.key.startsWith('cards.')) {
+    const CARD_LABELS = {
+      'cards.mode': { auto: '自动分页', manual: '逐页编辑' },
+      'cards.ratio': { '3:4': '3:4（小红书竖版）', '1:1': '1:1（方图）', '9:16': '9:16（抖音）', '4:3': '4:3（横版）' },
+      'cards.scale': { 1: '标准', 2: '高清 2×' },
+      'cards.wmPos': { tl: '左上', tr: '右上', bl: '左下', br: '右下' }
+    };
+    const map = CARD_LABELS[item.key];
+    if (map) return { text: map[v] != null ? map[v] : String(v), set: explicit };
+    if (item.key === 'cards.fontScale') return { text: Math.round((v || 1) * 100) + '%', set: explicit };
+    if (item.key === 'cards.wmOpacity') return { text: Math.round((v || 0) * 100) + '%', set: explicit };
+    if (item.key === 'cards.blur') return { text: v + ' px', set: explicit };
+    if (item.key === 'cards.wmText') return { text: v ? String(v) : '没设', set: !!v };
+    if (typeof v === 'boolean') return { text: v ? '开' : '关', set: explicit };
+    return { text: String(v ?? '—'), set: explicit };
+  }
+
   return { text: String(v ?? '—'), set: explicit };
 }
 
