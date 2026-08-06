@@ -253,8 +253,8 @@ function commands(MDW, tb, reviewer) {
       keywords: 'pdf daochu', when: hasDoc, run: () => MDW.exportPdf() },
     /* 没有「导出 Markdown」这一项 —— 打开的原文件就是 .md，再导一遍没意义。
        想拿源文件直接用「保存」，或者到文件夹里复制那个文件。 */
-    { id: 'copy-html', group: '送出去', icon: '📋', title: '复制 HTML',
-      desc: '粘进邮件或在线文档，样式跟着走', when: hasDoc, run: click('#copyBtn') },
+    { id: 'copy-html', group: '送出去', icon: '📋', title: '复制文档',
+      desc: '带排版复制，粘进飞书云文档、WPS、Word 就是渲染后的样子', when: hasDoc, run: click('#copyBtn') },
 
     // ---- 外观
     { id: 'theme', group: '外观', icon: '◐', title: '切换亮色 / 暗色',

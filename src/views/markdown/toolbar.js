@@ -123,10 +123,7 @@ export function rebuildToolbar(MDW) {
 
   /* ============================================ 二、导出合并 */
 
-  /* 「复制 HTML」也是一种「把这篇变成别的东西」，收进导出菜单，
-     工具栏上不再单独占位置。
-
-     「打印」也在这里 —— 它曾被删掉，因为那一版走的是当前页面的
+  /* 「打印」收进导出菜单 —— 它曾被删掉，因为那一版走的是当前页面的
      window.print()，在能力页还是 iframe 的年代根本不通（打印排版按外壳算，
      而 @media print 写在能力页自己的样式表里，管不到外面），点了什么都不发生。
      但**删掉能力不等于修好问题**：用户要的「我就想直接打印」没有了入口，
@@ -141,15 +138,12 @@ export function rebuildToolbar(MDW) {
      （用户要求简化操作）：
        · 「打印」            → 想在纸上或 PDF 里得到这篇，直说是打印
        · 「PDF（打印另存为）」→ 同一件事，写明最后一步在对话框里选另存为 PDF
-     两个名字，一条实现，不存在「其中一个时好时坏」。 */
+     两个名字，一条实现，不存在「其中一个时好时坏」。
+
+     ⚠「复制 HTML」**不再**收在这里了。它现在是工具栏上的常驻按钮「复制文档」
+     —— 用户明确要求过这个入口（「点击复制即把渲染后的整片文档内容复制下来，
+     粘贴到飞书云文档、WPS」）。那是个高频动作，藏在二级菜单里等于没有。 */
   window.DSExtraExports = [
-    {
-      id: 'copy-html',
-      label: '复制 HTML',
-      ext: '到剪贴板',
-      hint: '粘进邮件、公众号、飞书文档里，样式跟着走',
-      run: () => copyBtn?.click(),
-    },
     {
       id: 'print',
       label: '打印',
@@ -159,7 +153,13 @@ export function rebuildToolbar(MDW) {
     },
   ];
 
-  stash(copyBtn, attic);
+  /* copyBtn **不 stash** —— 它是常驻按钮「复制文档」，见上面的说明。
+     改一下文案：原来叫「复制 HTML」，那是技术说法；用户关心的是
+     「把这篇文档复制走，粘到别处还是这个样子」。 */
+  if (copyBtn) {
+    copyBtn.textContent = '复制文档';
+    copyBtn.title = '复制整篇（带排版）· 粘到飞书云文档、WPS、Word 里就是渲染后的样子';
+  }
   stash(printBtn, attic);
   stash(srcBtn, attic);
   stash(editBtn, attic);
@@ -207,7 +207,7 @@ export function rebuildToolbar(MDW) {
 
   const gEdit = group('tb-g-edit', [seg, findBtn, undoBtn, redoBtn]);
   const gDoc = group('tb-g-doc', [chgWrap, reviewBtn, saveBtn]);
-  const gOut = group('tb-g-out', [shareBtn, exportSplit]);
+  const gOut = group('tb-g-out', [copyBtn, shareBtn, exportSplit]);
 
   function group(cls, nodes) {
     const g = document.createElement('span');

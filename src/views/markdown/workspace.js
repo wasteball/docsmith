@@ -1261,6 +1261,212 @@
     }, refresh);
   }
 
+  /* ---------- 复制成「带排版的文档」 -------------------------------------
+     用户要的是：点一下，粘进飞书云文档 / WPS 在线文档，**看到的就是渲染后的
+     样子**（标题是标题、表格是表格、代码块有底色），不是一堆尖括号。
+
+     为什么原来的做法不行（两个独立的毛病，都得修）：
+
+       1. 原来走 `navigator.clipboard.writeText(html)` —— writeText 只写
+          **text/plain**。粘出来是字面的 `<h1>标题</h1>`。
+          要让接收方认作富文本，必须用 `ClipboardItem` 写 **text/html** 这个
+          flavour（同时带一份 text/plain 兜底，粘进纯文本编辑器时才不是空的）。
+
+       2. cleanDocHtml() 产出的 HTML 只带 class，样式全在外部样式表里。
+          而飞书、WPS、Word、公众号编辑器**一律丢掉外部 CSS 和 <style>**，
+          只认元素上的**内联 style**。所以粘过去表格没边框、代码块没底色。
+          → inlineStyles() 把关键的计算样式抄到每个元素的 style 上。
+
+     只抄"排版和识别度必需"的那些属性，不抄全部 computed style ——
+     全抄的话每个标签都会背上几十条声明，HTML 体积翻十倍，而且把
+     接收方文档自己的字体也一起盖掉（粘进去和周围内容格格不入）。 */
+
+  /* 每类元素抄哪些属性。宁少勿多：多抄一条，就多一分和接收方样式打架的机会。
+
+     刻意**不抄**的两样，都是踩过才知道的：
+       · font-family —— 抄过去会把飞书/WPS 文档自己的字体整段盖掉，粘进去
+         那一块和上下文格格不入。让它继承接收方的字体才对。
+       · width（表格）—— 抄的是「在我这儿量出来的像素宽」（比如 798px），
+         粘到别人窄一点的文档里就横向溢出。留空让它自适应。 */
+  var COPY_PROPS = {
+    common: ['color', 'background-color', 'font-weight', 'font-style', 'text-align',
+             'text-decoration-line', 'font-size', 'line-height'],
+    table: ['border-collapse'],
+    cell: ['border-top', 'border-right', 'border-bottom', 'border-left', 'padding',
+           'background-color', 'text-align', 'vertical-align'],
+    block: ['margin-top', 'margin-bottom', 'padding', 'background-color',
+            'border-radius', 'border-left', 'border', 'white-space', 'overflow-wrap'],
+    /* 代码要保留等宽字体 —— 那是代码的识别特征，属于内容语义的一部分，
+       和上面「不抄 font-family」的理由不冲突。 */
+    code: ['font-family', 'font-size', 'background-color', 'color', 'padding',
+           'border-radius', 'white-space']
+  };
+
+  function pickStyles(src, dst, props) {
+    var cs = window.getComputedStyle(src);
+    var out = [];
+    for (var i = 0; i < props.length; i++) {
+      var v = cs.getPropertyValue(props[i]);
+      if (!v) continue;
+      /* 默认值不用抄：none / normal / 0px 这些抄过去只是噪音，
+         而且可能把接收方的合理默认覆盖掉。
+         `start` 是 text-align 的默认值 —— 它会出现在**每一个**元素上，
+         抄过去等于给整篇文档硬编码对齐方式，还白涨一截体积。
+         真正需要居中的（数学公式块）值是 center，照样抄得到。 */
+      if (v === 'none' || v === 'normal' || v === 'auto' || v === '0px' ||
+          v === 'start' || v === 'rgba(0, 0, 0, 0)' || v === 'transparent') continue;
+      out.push(props[i] + ':' + v);
+    }
+    if (out.length) {
+      var prev = dst.getAttribute('style');
+      dst.setAttribute('style', (prev ? prev + ';' : '') + out.join(';'));
+    }
+  }
+
+  /**
+   * 把 live DOM 的计算样式抄进克隆体的内联 style。
+   * @param live 页面上真实渲染着的那棵树（有样式）
+   * @param copy 要发出去的克隆体（结构相同，但没样式）
+   */
+  function inlineStyles(live, copy) {
+    var a = live.querySelectorAll('*'), b = copy.querySelectorAll('*');
+    /* 两棵树是 cloneNode 出来的，节点顺序一一对应。长度不等说明克隆之后
+       又动过结构（cleanDocHtml 会拆 .blk 包裹层）—— 那就只能放弃内联，
+       宁可样式差一点，也不能把样式抄到错的元素上（那比没样式更难看）。 */
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      var el = a[i], to = b[i], tag = el.tagName;
+      if (tag === 'TABLE') { pickStyles(el, to, COPY_PROPS.table); continue; }
+      if (tag === 'TD' || tag === 'TH') { pickStyles(el, to, COPY_PROPS.cell); continue; }
+      if (tag === 'PRE' || tag === 'CODE') { pickStyles(el, to, COPY_PROPS.code); continue; }
+      if (/^(H[1-6]|P|LI|BLOCKQUOTE|DIV|UL|OL|HR|DETAILS|SUMMARY)$/.test(tag)) {
+        pickStyles(el, to, COPY_PROPS.common.concat(COPY_PROPS.block));
+        continue;
+      }
+      pickStyles(el, to, COPY_PROPS.common);
+    }
+    return true;
+  }
+
+  /** 生成「可以直接粘进富文本编辑器」的一段 HTML。 */
+  function richDocHtml() {
+    var live = preview;
+    var copy = live.cloneNode(true);
+    /* 先抄样式（这时两棵树结构还完全一致），再清脚手架 —— 顺序反了
+       inlineStyles 就会因为长度不等而放弃。 */
+    inlineStyles(live, copy);
+
+    // 下面这一段和 cleanDocHtml 同样的清理，只是作用在已经带样式的克隆体上
+    copy.querySelectorAll('.src-box,.blk-new,.blk-add-end,.doc-blank,.chg-del,.chg-diff').forEach(function (n) { n.remove(); });
+    copy.querySelectorAll('[data-chg]').forEach(function (n) { n.removeAttribute('data-chg'); });
+    copy.querySelectorAll('.rich').forEach(function (n) { n.classList.remove('rich'); });
+    copy.querySelectorAll('.find-match-block,.find-current-block').forEach(function (n) { n.classList.remove('find-match-block', 'find-current-block'); });
+    copy.querySelectorAll('.blk').forEach(function (b) {
+      var p = b.parentNode; while (b.firstChild) p.insertBefore(b.firstChild, b); p.removeChild(b);
+    });
+    copy.querySelectorAll('[contenteditable]').forEach(function (n) { n.removeAttribute('contenteditable'); });
+    copy.querySelectorAll('.cell-editing').forEach(function (n) { n.classList.remove('cell-editing'); });
+    copy.querySelectorAll('input[type=checkbox]').forEach(function (n) { n.disabled = true; n.removeAttribute('data-task'); });
+    /* 工具栏那些按钮别跟着粘过去 —— 它们在文档里没有意义。
+       ⚠ 普通代码块的 Copy 按钮是**直接**放在 .cb-head 里的（没有 .cb-actions
+       包一层，见 codeBlock()），所以必须显式点名 button 和 .copy-btn，
+       只删 .cb-actions 会漏掉它 —— 粘出来代码块头上挂着一颗按钮。 */
+    copy.querySelectorAll('.cb-actions,.mm-tools,.h-anchor,.blk-handle,.copy-btn,.mm-toggle,.mm-copy,.cb-head button').forEach(function (n) { n.remove(); });
+
+    /* 图表是 SVG。飞书、WPS 对内联 SVG 的支持不一致（有的直接丢掉），
+       所以给每张图补一个 data URI 的 <img> 兜底 —— 认 SVG 的用 SVG，
+       不认的至少能看到图，不会变成一片空白。 */
+    copy.querySelectorAll('.mermaid-render svg').forEach(function (svg) {
+      try {
+        var d = svgDims(svg);
+        var s = new XMLSerializer().serializeToString(svg);
+        var img = document.createElement('img');
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
+        /* 必须给宽高。不给的话 SVG 会按它自己的固有尺寸铺开 —— 一张
+           3000px 宽的流程图粘进飞书就撑爆版面（实测：图溢出到容器外面去了）。
+           写成 width:100% + auto 高度，让它跟着接收方的栏宽走。 */
+        img.setAttribute('width', Math.round(d.w));
+        img.setAttribute('height', Math.round(d.h));
+        img.setAttribute('style', 'max-width:100%;height:auto;display:block');
+        svg.parentNode.replaceChild(img, svg);
+      } catch (e) { /* 转不了就留着原来的 SVG */ }
+    });
+    /* 图表容器在页面上是个固定高度的可拖画布（.mm-viewport 带 height 和
+       overflow:hidden）。那套东西粘过去毫无意义，还会把图裁掉一半 ——
+       把画布的限制拆掉，只留图本身。 */
+    copy.querySelectorAll('.mm-viewport,.mm-stage').forEach(function (n) {
+      n.removeAttribute('style');
+      n.setAttribute('style', 'overflow:visible;height:auto');
+    });
+    /* 源码视图那份 <pre> 在图表块里是隐藏的，粘过去会变成重复内容 */
+    copy.querySelectorAll('.mermaid-source').forEach(function (n) { n.remove(); });
+
+    /* 直接返回内容，**不**包一层带 font-family 的 div ——
+       让粘进去的内容继承飞书/WPS 文档自己的字体，才不会显得像块补丁。
+       版心宽度（max-width:860px）同理不能带过去，会挤成一条。 */
+    return copy.innerHTML;
+  }
+
+  /** 富文本复制：往剪贴板同时写 text/html 和 text/plain。 */
+  function copyRich(btn) {
+    if (!currentId) { toast('先打开一份文档', 'err'); return; }
+    var html, plain;
+    try {
+      html = richDocHtml();
+      plain = preview.innerText || preview.textContent || '';
+    } catch (e) {
+      toast('生成内容失败：' + ((e && e.message) || '未知错误'), 'err');
+      return;
+    }
+    var ok = function () {
+      if (btn) flashBtn(btn, '已复制');
+      toast('已复制 · 去飞书 / WPS / Word 里直接粘贴即可', 'ok');
+    };
+    /* 退路：写不了 text/html 就退成纯 HTML 源码（起码内容不丢），
+       并且**说清楚**发生了什么，别让用户以为粘出来一堆标签是 bug。 */
+    var fallback = function () {
+      copyText(html, btn);
+      toast('这个环境只允许复制文本，粘过去可能是 HTML 源码', 'err', 4200);
+    };
+
+    if (!(navigator.clipboard && navigator.clipboard.write && window.ClipboardItem)) { fallback(); return; }
+    try { window.focus(); } catch (e) {}
+    var item;
+    try {
+      item = new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([plain], { type: 'text/plain' })
+      });
+    } catch (e) { fallback(); return; }
+
+    navigator.clipboard.write([item]).then(ok, function () {
+      /* 嵌在外壳里时本文档常常不被认为"有焦点"，clipboard.write 会被拒。
+         和复制图片同一个套路：交给外壳那一层去写（它是顶层文档）。 */
+      if (IN_SHELL) {
+        shellCopyRich(html, plain, function (done) { if (done) ok(); else fallback(); });
+        return;
+      }
+      fallback();
+    });
+  }
+
+  /** 请外壳代写剪贴板（顶层文档才有焦点，见 copyDiagramImage 那段的说明）。 */
+  var _richReqs = {};
+  function shellCopyRich(html, plain, cb) {
+    var id = 'rc' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    var fired = false, finish = function (ok) { if (fired) return; fired = true; delete _richReqs[id]; cb(!!ok); };
+    _richReqs[id] = finish;
+    try {
+      window.parent.postMessage({ ns: BUS_NS, type: 'copyRich', id: id, html: html, plain: plain }, '*');
+    } catch (e) { finish(false); return; }
+    setTimeout(function () { finish(false); }, 2500);
+  }
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || d.ns !== BUS_NS || d.type !== 'copyRichResult') return;
+    if (_richReqs[d.id]) _richReqs[d.id](d.ok);
+  });
+
   /* ---------- export / print / copy ---------------------------------- */
   /* 导出的网页里内嵌这一段。它要做三件事，都要在**离线单文件**里成立：
 
@@ -4822,7 +5028,10 @@
     $('#shareModal .modal-close').addEventListener('click', function () { $('#shareModal').classList.remove('open'); });
     $('#shareModal').addEventListener('click', function (e) { if (e.target === this) this.classList.remove('open'); });
 
-    $('#copyBtn').addEventListener('click', function () { copyText(cleanDocHtml(), this); toast('复制 HTML 成功', 'ok'); });
+    /* 「复制文档」= 复制成**带排版的**文档，用户粘进飞书 / WPS 就是渲染后的样子。
+       原来这里是 copyText(cleanDocHtml())，只写 text/plain，粘出来是一堆
+       尖括号 —— 见 copyRich() 上面那段说明。 */
+    $('#copyBtn').addEventListener('click', function () { copyRich(this); });
     /* ⚠ 这三个按钮不一定还在 DOM 里，所以一律用 on() 而不是直接 addEventListener。
 
        #downloadBtn 已经被 export-menu.js 的 mountExportMenu() 用 replaceChild
