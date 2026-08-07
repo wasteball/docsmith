@@ -29,7 +29,7 @@ export const KEYS = {
   shell: 'docsmith:shell',             // 菜单顺序、隐藏项、自定义能力
   storage: 'docsmith:storage',         // 云存储配置（含凭据，仅本机）
   library: 'docsmith:library',         // 文件库：历史、分类、偏好
-  markdown: 'docsmith:markdown',       // Markdown 工作台：阅读偏好
+  prefs: 'docsmith:prefs',             // 全应用偏好：阅读排版、编辑与导出习惯
 };
 
 /* --------------------------------------------------------- 内置能力表 *

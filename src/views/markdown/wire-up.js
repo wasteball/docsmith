@@ -206,8 +206,12 @@ function commands(MDW, tb, reviewer) {
       run: click('[data-open="file"]') },
     { id: 'open-folder', group: '文档', icon: '📁', title: '打开文件夹',
       desc: '一次读进整个目录', order: 2, run: click('[data-open="folder"]') },
+    { id: 'reload-folder', group: '文档', icon: '↻', title: '重新载入当前文件夹',
+      desc: '读取文件夹里的最新内容，不用重新选择', order: 3,
+      when: () => !document.querySelector('[data-open="reload-folder"]')?.disabled,
+      run: click('[data-open="reload-folder"]') },
     { id: 'open-url', group: '文档', icon: '🔗', title: '从链接加载',
-      desc: 'GitHub 上的 README 也能直接贴', order: 3, run: click('[data-open="url"]') },
+      desc: 'GitHub 上的 README 也能直接贴', order: 4, run: click('[data-open="url"]') },
     { id: 'new-doc', group: '文档', icon: '✎', title: '新建文档', order: 4,
       run: click('[data-open="new"]') },
 

@@ -34,6 +34,16 @@
     catch (e) { return false; }   // 空间满了就静默放弃，记不住总比崩了强
   }
 
+  function notifyChrome(key, obj) {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local && chrome.storage.local.set) {
+        var data = {}; data[key] = obj;
+        var p = chrome.storage.local.set(data);
+        if (p && p.catch) p.catch(function () {});
+      }
+    } catch (e) {}
+  }
+
   var cache = null;
   function prefs() {
     if (!cache) cache = load(PREF_KEY);
@@ -43,7 +53,11 @@
   var writeTimer = null;
   function flush() {
     clearTimeout(writeTimer);
-    writeTimer = setTimeout(function () { save(PREF_KEY, prefs()); }, 200);
+    writeTimer = setTimeout(function () {
+      var current = prefs();
+      save(PREF_KEY, current);
+      notifyChrome(PREF_KEY, current);
+    }, 200);
   }
 
   /* ------------------------------------------------------------ 偏好 */
@@ -126,6 +140,6 @@
     watch: watch,
     bind: bind,
     all: function () { return Object.assign({}, prefs()); },
-    reset: function () { cache = {}; save(PREF_KEY, {}); },
+    reset: function () { cache = {}; save(PREF_KEY, {}); notifyChrome(PREF_KEY, {}); },
   };
 })(window);

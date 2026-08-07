@@ -61,6 +61,7 @@ input[type=file]{display:none}
 .menu.open{display:block;}
 .menu-item{display:flex; align-items:center; gap:10px; width:100%; background:none; border:none; font-family:inherit; font-size:13px; color:var(--text); padding:9px 10px; border-radius:8px; cursor:pointer; text-align:left;}
 .menu-item:hover{background:var(--surface-2);}
+.menu-item:disabled{cursor:default; opacity:.45; background:none;}
 .menu-item .mi-ico{width:18px; text-align:center; opacity:.85;}
 .menu-item .mi-key{margin-left:auto; font-size:11px; color:var(--muted); font-family:'JetBrains Mono',monospace;}
 .menu-sep{height:1px; background:var(--border); margin:5px 4px;}
