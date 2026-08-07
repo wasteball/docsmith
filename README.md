@@ -12,13 +12,7 @@
 
 ## 安装
 
-作为 Chrome/Edge 扩展安装：
-
-1. 克隆或下载此仓库
-2. 打开浏览器的扩展管理页面（`chrome://extensions` 或 `edge://extensions`）
-3. 启用"开发者模式"
-4. 点击"加载已解压的扩展程序"
-5. 选择项目文件夹
+[查看 Docsmith 安装与使用教程](https://mp.weixin.qq.com/s/ywLOw8e2vPmV6feEv5ybDQ)
 
 ## 使用
 
