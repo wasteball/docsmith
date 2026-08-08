@@ -26,10 +26,19 @@
     </div>
   </div>
 
+  <div class="cd-workbar">
+    <div class="cd-mobile-surfaces" id="cd-mobile-surfaces" aria-label="工作区视图">
+      <button type="button" data-surface="edit">编辑</button>
+      <button type="button" data-surface="preview">预览</button>
+    </div>
+    <div class="cd-quick-ratio"><span>比例</span><div class="cd-seg" id="cd-ratio"></div></div>
+    <button class="btn" id="cd-style-toggle" type="button" aria-expanded="false">样式 · <span id="cd-theme-name">清爽白</span></button>
+  </div>
+
   <div class="cd-main">
 
-    <!-- ==================================================== 左：内容 + 预览 -->
-    <div>
+    <!-- ==================================================== 内容创作 -->
+    <div class="cd-workspace-pane cd-editor-surface" data-surface="edit">
       <div class="cd-panel">
         <div class="cd-preview-head">
           <p class="cd-panel-title" style="margin:0">内容</p>
@@ -66,6 +75,7 @@
           <div class="cd-src-row">
             <button class="btn" id="cd-pull" type="button" title="拿 Markdown 工作台里正在打开的那篇文档">取当前文档</button>
             <button class="btn" id="cd-clear" type="button">清空</button>
+            <button class="cd-restore-example" id="cd-restore-example" type="button" hidden>恢复示例</button>
             <span class="cd-hint"><span class="cd-count" id="cd-count">0</span> 字</span>
           </div>
         </div>
@@ -81,7 +91,11 @@
         </div>
       </div>
 
-      <div class="cd-panel">
+    </div>
+
+    <!-- ==================================================== 多图结果 -->
+    <div class="cd-workspace-pane cd-preview-surface" data-surface="preview">
+      <div class="cd-panel cd-preview-panel">
         <div class="cd-preview-head">
           <p class="cd-panel-title" style="margin:0">预览</p>
           <div class="cd-actions">
@@ -91,18 +105,18 @@
           </div>
         </div>
         <div id="cd-cards" class="cd-cards"></div>
-        <div class="cd-empty" id="cd-empty">左边写点东西，这里就会出现卡片</div>
+        <div class="cd-empty" id="cd-empty">
+          <p>写一句，右边就会实时生成卡片</p>
+          <div id="cd-example-entry"></div>
+        </div>
       </div>
     </div>
 
-    <!-- ==================================================== 右：样式设置 -->
-    <div>
+    <!-- ==================================================== 按需打开的样式检查器 -->
+    <aside class="cd-style-inspector" id="cd-style-inspector" data-surface="style" hidden>
+      <div class="cd-inspector-head"><div><b>样式</b><span id="cd-ratio-hint"></span></div><button type="button" id="cd-style-close" aria-label="关闭样式">✕</button></div>
       <div class="cd-panel">
-        <p class="cd-panel-title">尺寸</p>
-        <div class="cd-field">
-          <div class="cd-label"><b>长宽比</b><span id="cd-ratio-hint"></span></div>
-          <div class="cd-seg" id="cd-ratio"></div>
-        </div>
+        <p class="cd-panel-title">输出</p>
         <div class="cd-field">
           <div class="cd-label"><b>清晰度</b><span id="cd-scale-val"></span></div>
           <div class="cd-seg" id="cd-scale">
@@ -112,28 +126,56 @@
         </div>
       </div>
 
-      <div class="cd-panel">
-        <p class="cd-panel-title">外观</p>
+      <div class="cd-panel cd-style-panel">
+        <div class="cd-panel-title-row"><p class="cd-panel-title">外观</p></div>
         <div class="cd-field">
-          <div class="cd-label"><b>背景</b></div>
-          <div class="cd-seg cd-seg-bg" id="cd-bg"></div>
+          <div class="cd-label"><b>主题</b><span>一键定下整体气质</span></div>
+          <div class="cd-themes" id="cd-themes"></div>
         </div>
         <div class="cd-field">
-          <div class="cd-label"><b>自己的背景图</b></div>
-          <input type="file" id="cd-bgfile" accept="image/*" hidden>
-          <button class="cd-file-btn" id="cd-bgpick" type="button">＋ 选一张图片</button>
-          <button class="cd-file-clear" id="cd-bgclear" type="button" hidden>移除背景图，回到内置背景</button>
+          <div class="cd-label"><b>主题色</b></div>
+          <div class="cd-colors" id="cd-accent"></div>
+          <label class="cd-custom-color"><span>自定义</span><input type="color" id="cd-accent-custom" value="#315b8a"></label>
         </div>
-        <div class="cd-field" id="cd-blur-field" hidden>
-          <div class="cd-label"><b>背景模糊</b><span id="cd-blur-val">18 px</span></div>
-          <input type="range" class="cd-range" id="cd-blur" min="0" max="60" step="2" value="18">
-          <p class="cd-hint" style="margin:6px 0 0">背景太清楚会抢正文。文字颜色会自动挑（黑/白）并在需要时加一层蒙版。</p>
+        <div class="cd-field">
+          <div class="cd-label"><b>字体</b></div>
+          <div class="cd-seg" id="cd-font-family"></div>
         </div>
         <div class="cd-field">
           <div class="cd-label"><b>字号</b><span id="cd-font-val">100%</span></div>
           <input type="range" class="cd-range" id="cd-font" min="80" max="130" step="5" value="100">
         </div>
+        <div class="cd-field">
+          <div class="cd-label"><b>标题</b></div>
+          <div class="cd-visual-options" id="cd-heading-style"></div>
+        </div>
+        <div class="cd-field">
+          <div class="cd-label"><b>代码块</b></div>
+          <div class="cd-seg" id="cd-code-style"></div>
+          <label class="cd-check cd-mac-check"><input type="checkbox" id="cd-mac-dots"> 显示 Mac 窗口圆点</label>
+        </div>
       </div>
+
+      <details class="cd-panel cd-advanced" id="cd-bg-details">
+        <summary>背景与图片 <span>更多个性化</span></summary>
+        <div class="cd-details-body">
+          <div class="cd-field">
+            <div class="cd-label"><b>背景</b></div>
+            <div class="cd-seg cd-seg-bg" id="cd-bg"></div>
+          </div>
+          <div class="cd-field">
+            <div class="cd-label"><b>自己的背景图</b></div>
+            <input type="file" id="cd-bgfile" accept="image/*" hidden>
+            <button class="cd-file-btn" id="cd-bgpick" type="button">＋ 选一张图片</button>
+            <button class="cd-file-clear" id="cd-bgclear" type="button" hidden>移除背景图，回到内置背景</button>
+          </div>
+          <div class="cd-field" id="cd-blur-field" hidden>
+            <div class="cd-label"><b>背景模糊</b><span id="cd-blur-val">18 px</span></div>
+            <input type="range" class="cd-range" id="cd-blur" min="0" max="60" step="2" value="18">
+            <p class="cd-hint" style="margin:6px 0 0">文字颜色会自动选择黑或白，并在需要时加蒙版。</p>
+          </div>
+        </div>
+      </details>
 
       <div class="cd-panel">
         <p class="cd-panel-title">水印与页码</p>
@@ -167,7 +209,7 @@
           <label class="cd-check"><input type="checkbox" id="cd-cover"> 多做一张封面（用第一个标题）</label>
         </div>
       </div>
-    </div>
+    </aside>
 
   </div>
 </div>
@@ -177,9 +219,11 @@
      [hidden]{display:none!important}，正是为了压住 .cd-lightbox 自己的
      display:flex（否则 hidden 无效，会留一个铺满屏幕的透明层挡住一切点击，
      那就是项目里记过的「卡死，只能刷新」那个 bug）。 -->
-<div class="cd-lightbox" id="cd-lightbox" hidden>
+<div class="cd-lightbox" id="cd-lightbox" hidden role="dialog" aria-modal="true" aria-labelledby="cd-lb-title">
+  <h2 class="sr-only" id="cd-lb-title">多图预览</h2>
   <button class="cd-lb-close" id="cd-lb-close" type="button" title="关闭（Esc）" aria-label="关闭">✕</button>
   <div class="cd-lb-stage" id="cd-lb-stage"></div>
+  <div class="cd-lb-dots" id="cd-lb-dots" aria-hidden="true"></div>
   <div class="cd-lb-bar">
     <button id="cd-lb-prev" type="button" title="上一张（←）">← 上一张</button>
     <span class="cd-lb-no" id="cd-lb-no">1 / 1</span>

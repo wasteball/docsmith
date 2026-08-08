@@ -13,6 +13,7 @@
  * ===================================================================== */
 import { toShell, on as onBus } from '../../core/bus.js';
 import * as prefs from '../../core/prefs.js';
+import { CARD_EXAMPLES } from './examples/manifest.js';
 
 /* 本能力的根容器。独立打开这一页时是 body；被外壳挂进来时是标了
    data-ds-host="cards" 的那个 div。 */
@@ -20,6 +21,29 @@ function root() {
   return document.querySelector('[data-ds-host="cards"]') || document.body;
 }
 function el(id) { return root().querySelector('#' + id); }
+
+/* 这不是教程，而是一份能直接改的真实草稿：打开就能看见输入和结果之间的关系，
+   改一句，右边马上变。内容刻意短，只覆盖普通人最常用的格式。 */
+const STARTER_CONTENT = `# 3 个小习惯，让工作轻松一点
+
+别急着把一天塞满。真正有效率的人，往往先把事情变简单。
+
+## 先做最重要的一件事
+
+- 写下今天唯一必须完成的任务
+- 关闭暂时用不到的通知
+- 给自己留一段不被打扰的时间
+
+**完成比完美更重要。**先向前走一步，再慢慢调整。
+
+> 直接修改左边任意一句，右边会实时生成新的图片。
+
+\`今天就从一件小事开始。\`
+
+\`\`\`js
+const 今日重点 = '完成最重要的一件事';
+console.log(今日重点);
+\`\`\``;
 
 /* ------------------------------------------------------------- toast */
 function toast(msg, kind, ms) {
@@ -44,6 +68,11 @@ const state = {
   bgImage: null,        // 自定义背景（ImageBitmap / Image）
   blur: 18,
   fontScale: 1,
+  fontFamily: 'sans',
+  accentColor: 'auto',
+  headingStyle: 'center-rule',
+  codeStyle: 'terminal',
+  macDots: true,
   wmText: '',
   wmImage: null,
   wmPos: 'br',
@@ -58,6 +87,7 @@ const state = {
 let rendered = [];      // 当前画出来的 canvas 列表
 let renderSeq = 0;      // 防止慢的那一轮盖掉快的那一轮
 let overflows = [];     // 手动模式下装不下的页序号（0-based，含封面偏移）
+const ui = { styleOpen: false, mobileSurface: 'edit', returnSurface: 'edit', activePage: -1 };
 
 /* ------------------------------------------------------------- 记忆
    把样式参数记住，下次打开还是你调好的样子。
@@ -75,6 +105,8 @@ let overflows = [];     // 手动模式下装不下的页序号（0-based，含�
 const REMEMBER = [
   ['mode', 'cards.mode'], ['ratio', 'cards.ratio'], ['scale', 'cards.scale'],
   ['background', 'cards.background'], ['blur', 'cards.blur'], ['fontScale', 'cards.fontScale'],
+  ['fontFamily', 'cards.fontFamily'], ['accentColor', 'cards.accentColor'],
+  ['headingStyle', 'cards.headingStyle'], ['codeStyle', 'cards.codeStyle'], ['macDots', 'cards.macDots'],
   ['wmText', 'cards.wmText'], ['wmPos', 'cards.wmPos'], ['wmOpacity', 'cards.wmOpacity'],
   ['pageNo', 'cards.pageNo'], ['cover', 'cards.cover']
 ];
@@ -120,11 +152,23 @@ function buildSeg(host, items, get, set) {
   };
 }
 
+function themeMatch() {
+  const D = window.DSCards;
+  if (!D) return null;
+  return (D.THEMES || []).find((theme) => Object.entries(theme.values).every(([key, value]) => state[key] === value)) || null;
+}
+function syncThemeLabel() {
+  const match = themeMatch();
+  const label = el('cd-theme-name');
+  if (label) label.textContent = match ? match.name : '自定义';
+  const host = el('cd-themes');
+  if (host) host.querySelectorAll('[data-theme]').forEach((b) => b.classList.toggle('on', !!match && b.dataset.theme === match.id));
+}
 function sync() {
   /* 所有控件的改动最后都会走到 sync()（分段按钮、滑杆、勾选框都调了它），
      所以在这儿存盘一次就够，不用在每个 handler 里各写一遍 —— 那样早晚漏一个。 */
   savePrefs();
-  root().querySelectorAll('.cd-seg').forEach((s) => { if (s._sync) s._sync(); });
+  root().querySelectorAll('.cd-seg, .cd-colors, .cd-visual-options').forEach((s) => { if (s._sync) s._sync(); });
   const r = (window.DSCards.RATIOS.find((x) => x.id === state.ratio) || {});
   const hint = el('cd-ratio-hint');
   if (hint) hint.textContent = r.hint || '';
@@ -136,6 +180,11 @@ function sync() {
   const bf = el('cd-blur-field'); if (bf) bf.hidden = !state.bgImage;
   const bc = el('cd-bgclear'); if (bc) bc.hidden = !state.bgImage;
   const wc = el('cd-wmclear'); if (wc) wc.hidden = !state.wmImage;
+  const custom = el('cd-accent-custom');
+  if (custom && /^#[0-9a-f]{6}$/i.test(state.accentColor)) custom.value = state.accentColor;
+  const mac = el('cd-mac-dots'); if (mac) mac.checked = !!state.macDots;
+  const details = el('cd-bg-details'); if (details && state.bgImage) details.open = true;
+  syncThemeLabel();
 }
 
 /* ------------------------------------------------- 逐页编辑：页列表 UI
@@ -199,9 +248,50 @@ function renderPageList() {
   markOverflow();
 }
 
+function focusManualPage(i) {
+  const box = el('cd-pages') && el('cd-pages').querySelector(`.cd-page[data-i="${i}"]`);
+  if (!box) return;
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const ta = box.querySelector('textarea[data-act="text"]'); if (ta) ta.focus();
+}
+function markActivePage() {
+  const pages = el('cd-pages');
+  if (pages) pages.querySelectorAll('.cd-page').forEach((box) => box.classList.toggle('active', +box.dataset.i === ui.activePage));
+  const offset = state.cover ? 1 : 0;
+  const cards = el('cd-cards');
+  if (cards) cards.querySelectorAll('.cd-card').forEach((box) => box.classList.toggle('selected', +box.dataset.i === ui.activePage + offset));
+}
+
 /** 给某个输入控件填值。模块级的 function 声明 —— 会被提升，
     所以上面注册的 bus 监听器里引用它是安全的（不依赖执行顺序）。 */
 function setVal(id, v) { const e = el(id); if (e) e.value = v; }
+
+function isNarrowWorkspace() { return window.innerWidth <= 900; }
+function paintWorkspace() {
+  const app = root().querySelector('.cd-app');
+  const inspector = el('cd-style-inspector');
+  const toggle = el('cd-style-toggle');
+  if (app) app.classList.toggle('style-open', ui.styleOpen);
+  if (inspector) inspector.hidden = !ui.styleOpen;
+  if (toggle) toggle.setAttribute('aria-expanded', ui.styleOpen ? 'true' : 'false');
+  root().querySelectorAll('.cd-workspace-pane[data-surface]').forEach((node) => {
+    node.classList.toggle('mobile-active', !isNarrowWorkspace() || (!ui.styleOpen && node.dataset.surface === ui.mobileSurface));
+  });
+  if (inspector) inspector.classList.toggle('mobile-active', isNarrowWorkspace() && ui.styleOpen);
+  const nav = el('cd-mobile-surfaces');
+  if (nav) nav.querySelectorAll('[data-surface]').forEach((b) => b.classList.toggle('on', b.dataset.surface === ui.mobileSurface && !ui.styleOpen));
+}
+function setMobileSurface(surface) {
+  if (surface !== 'edit' && surface !== 'preview') return;
+  ui.mobileSurface = surface; ui.returnSurface = surface; ui.styleOpen = false; paintWorkspace();
+}
+function toggleStyle(force) {
+  const next = force == null ? !ui.styleOpen : !!force;
+  if (next) ui.returnSurface = ui.mobileSurface;
+  ui.styleOpen = next;
+  if (!next && isNarrowWorkspace()) ui.mobileSurface = ui.returnSurface;
+  paintWorkspace();
+}
 
 function escapeHtml(s) {
   return String(s == null ? '' : s)
@@ -407,6 +497,11 @@ function bindPageList() {
     draw();
   });
 
+  host.addEventListener('focusin', (e) => {
+    const ta = e.target.closest('textarea[data-act="text"]'); if (!ta) return;
+    ui.activePage = +ta.closest('.cd-page').dataset.i; markActivePage();
+  });
+
   /* 打字：只改数据 + 防抖重画，**不重建列表**（否则光标会跳走） */
   host.addEventListener('input', (e) => {
     const ta = e.target.closest('textarea[data-act="text"]');
@@ -469,6 +564,11 @@ function optsNow() {
     image: state.bgImage,
     blur: state.blur,
     fontScale: state.fontScale,
+    fontFamily: state.fontFamily,
+    accentColor: state.accentColor,
+    headingStyle: state.headingStyle,
+    codeStyle: state.codeStyle,
+    macDots: state.macDots,
     pageNo: state.pageNo,
     watermark: {
       text: state.wmText,
@@ -489,6 +589,22 @@ function coverTitle(text) {
   return p.text.length > 24 ? p.text.slice(0, 24) + '…' : p.text;
 }
 
+function syncStarterAction(hasContent) {
+  const restore = el('cd-restore-example'); if (restore) restore.hidden = !!hasContent;
+}
+function restoreStarter() {
+  const src = el('cd-src');
+  if (state.mode === 'manual') {
+    const cut = window.DSCards.splitToPages(STARTER_CONTENT, optsNow());
+    state.pages = (cut.length ? cut : [STARTER_CONTENT]).map((text) => ({ text }));
+    ui.activePage = 0; renderPageList(); draw();
+    const first = el('cd-pages') && el('cd-pages').querySelector('textarea[data-act="text"]'); if (first) first.focus();
+    return;
+  }
+  if (src) { src.value = STARTER_CONTENT; src.focus(); src.setSelectionRange(0, 0); }
+  draw();
+}
+
 function draw() {
   const src = el('cd-src');
   const text = src ? src.value : '';
@@ -505,6 +621,7 @@ function draw() {
   const hasContent = manual
     ? state.pages.some((p) => String(p.text || '').trim())
     : !!text.trim();
+  syncStarterAction(hasContent);
 
   if (!hasContent) {
     rendered = []; overflows = [];
@@ -512,6 +629,8 @@ function draw() {
     if (cards) cards.innerHTML = '';
     if (empty) empty.hidden = false;
     if (status) status.textContent = '';
+    const previewNav = el('cd-mobile-surfaces') && el('cd-mobile-surfaces').querySelector('[data-surface="preview"]');
+    if (previewNav) previewNav.textContent = '预览';
     if (manual) markOverflow();
     setBusy(false);
     return;
@@ -546,20 +665,32 @@ function draw() {
     rendered = out.canvases;
     overflows = out.overflows || [];
     if (manual) markOverflow();
-    /* 大图开着的时候重画了（用户在旁边改了参数）→ 让它跟着更新，
-       别继续显示一张已经被丢掉的旧 canvas。张数变少时收敛到最后一张。 */
-    if (lbIndex >= 0) {
+    /* 生成结果的大图开着时，样式变化后把会话切到新 canvas；示例会话是独立的，
+       不能被当前文档的重绘覆盖。 */
+    if (lbIndex >= 0 && lbSession && lbSession.type === 'generated') {
       if (!rendered.length) closeLightbox();
-      else { lbIndex = Math.min(lbIndex, rendered.length - 1); paintLightbox(); }
+      else {
+        lbSession.items = rendered;
+        lbIndex = Math.min(lbIndex, rendered.length - 1);
+        paintLightbox();
+      }
     }
 
     cards.innerHTML = '';
     out.canvases.forEach((c, i) => {
       const wrap = document.createElement('div');
       wrap.className = 'cd-card';
+      wrap.dataset.i = String(i);
+      wrap.classList.toggle('selected', manual && i === ui.activePage + (state.cover ? 1 : 0));
+      wrap.classList.toggle('over', overflows.indexOf(i) >= 0);
       wrap.appendChild(c);
-      // 点图看原尺寸 —— 缩略图太小，判断不了效果
-      c.addEventListener('click', () => openLightbox(i));
+      // 自动模式点图看原尺寸；逐页模式点图先定位对应编辑页，再次点击仍可看大图
+      c.addEventListener('click', () => {
+        const pageIndex = i - (state.cover ? 1 : 0);
+        if (manual && pageIndex >= 0) {
+          ui.activePage = pageIndex; focusManualPage(pageIndex); markActivePage();
+        } else openLightbox(i);
+      });
       c.title = '点击看原尺寸';
       const no = document.createElement('span');
       no.className = 'cd-card-no';
@@ -576,6 +707,8 @@ function draw() {
 
     if (status) {
       var msg = `${out.canvases.length} 张 · ${out.meta.width}×${out.meta.height}`;
+      const previewNav = el('cd-mobile-surfaces') && el('cd-mobile-surfaces').querySelector('[data-surface="preview"]');
+      if (previewNav) previewNav.textContent = `预览 ${out.canvases.length}`;
       /* 有页装不下就直说是哪几页 —— 静默溢出会让用户以为字丢了。
          注意这里报的是**预览里的张号**（含封面），和左边编辑框的编号
          可能差一，所以文案里说「第 N 张」而不是「第 N 页」。 */
@@ -585,6 +718,16 @@ function draw() {
       status.textContent = msg;
     }
   }, 0);
+}
+
+function renderExampleEntry() {
+  const host = el('cd-example-entry');
+  if (!host) return;
+  const example = CARD_EXAMPLES && CARD_EXAMPLES[0];
+  if (!example || !example.images || !example.images.length) { host.innerHTML = ''; return; }
+  const cover = example.images[example.coverIndex || 0];
+  host.innerHTML = `<button type="button" class="cd-example"><img src="${cover.url}" alt="${cover.alt || example.title}"><span class="cd-example-body"><span><b>${example.title}</b><span>${example.summary || '看看成品是什么效果'}</span></span><span class="cd-example-cta">查看示例 · ${example.images.length} 张 ›</span></span></button>`;
+  const b = host.querySelector('button'); if (b) b.addEventListener('click', () => openExample(example, b));
 }
 
 function setBusy(on) {
@@ -601,6 +744,8 @@ function setBusy(on) {
    .cd-lightbox 自己的 display:flex —— 少了它，hidden 会失效，留下一个
    铺满屏幕的透明层吃掉所有点击（项目里记着的「卡死，只能刷新」那个 bug）。 */
 let lbIndex = -1;
+let lbSession = null;
+let lbReturnFocus = null;
 
 function lbEls() {
   return {
@@ -612,9 +757,22 @@ function lbEls() {
 function openLightbox(i) {
   const e = lbEls();
   if (!e.box || !rendered[i]) return;
+  lbSession = { type: 'generated', items: rendered };
+  lbReturnFocus = document.activeElement;
   lbIndex = i;
   paintLightbox();
   e.box.hidden = false;
+  const close = el('cd-lb-close'); if (close) close.focus();
+}
+function openExample(example, trigger) {
+  const e = lbEls();
+  if (!e.box || !example || !example.images || !example.images.length) return;
+  lbSession = { type: 'example', items: example.images, title: example.title };
+  lbReturnFocus = trigger || document.activeElement;
+  lbIndex = example.coverIndex || 0;
+  paintLightbox();
+  e.box.hidden = false;
+  const close = el('cd-lb-close'); if (close) close.focus();
 }
 
 /** 把第 lbIndex 张画进大图区。
@@ -622,16 +780,31 @@ function openLightbox(i) {
     预览格子里就空了一个（DOM 节点只能有一个父节点）。 */
 function paintLightbox() {
   const e = lbEls();
-  const src = rendered[lbIndex];
+  const session = lbSession;
+  const src = session && session.items[lbIndex];
   if (!e.stage || !src) return;
-  const c = document.createElement('canvas');
-  c.width = src.width; c.height = src.height;
-  c.getContext('2d').drawImage(src, 0, 0);
   e.stage.innerHTML = '';
-  e.stage.appendChild(c);
-  if (e.no) e.no.textContent = (lbIndex + 1) + ' / ' + rendered.length;
+  if (session.type === 'generated') {
+    const c = document.createElement('canvas');
+    c.width = src.width; c.height = src.height;
+    c.getContext('2d').drawImage(src, 0, 0);
+    e.stage.appendChild(c);
+    if (e.save) e.save.hidden = false;
+  } else {
+    const img = new Image(); img.alt = src.alt || `${session.title || '成品示例'}第 ${lbIndex + 1} 张`;
+    img.onload = () => { e.stage.innerHTML = ''; e.stage.appendChild(img); };
+    img.onerror = () => { e.stage.innerHTML = '<p class="cd-lb-error">这张示例图片没有加载成功，可以继续切换其他图片。</p>'; };
+    img.src = src.url;
+    e.stage.appendChild(img);
+    if (e.save) e.save.hidden = true;
+    [lbIndex - 1, lbIndex + 1].forEach((i) => { if (session.items[i]) { const p = new Image(); p.src = session.items[i].url; } });
+  }
+  const total = session.items.length;
+  if (e.no) e.no.textContent = (lbIndex + 1) + ' / ' + total;
   if (e.prev) e.prev.disabled = lbIndex <= 0;
-  if (e.next) e.next.disabled = lbIndex >= rendered.length - 1;
+  if (e.next) e.next.disabled = lbIndex >= total - 1;
+  const dots = el('cd-lb-dots');
+  if (dots) dots.innerHTML = session.type === 'example' ? session.items.map((_, i) => `<i class="${i === lbIndex ? 'on' : ''}"></i>`).join('') : '';
 }
 
 function closeLightbox() {
@@ -639,13 +812,15 @@ function closeLightbox() {
   if (!e.box) return;
   e.box.hidden = true;
   if (e.stage) e.stage.innerHTML = '';    // 别留着一张全尺寸 canvas 占内存
-  lbIndex = -1;
+  const back = lbReturnFocus;
+  lbIndex = -1; lbSession = null; lbReturnFocus = null;
+  if (back && typeof back.focus === 'function') back.focus();
 }
 
 function stepLightbox(d) {
-  if (lbIndex < 0) return;
+  if (lbIndex < 0 || !lbSession) return;
   const n = lbIndex + d;
-  if (n < 0 || n >= rendered.length) return;
+  if (n < 0 || n >= lbSession.items.length) return;
   lbIndex = n;
   paintLightbox();
 }
@@ -655,7 +830,7 @@ function bindLightbox() {
   if (!e.box) return;
   if (e.prev) e.prev.addEventListener('click', () => stepLightbox(-1));
   if (e.next) e.next.addEventListener('click', () => stepLightbox(1));
-  if (e.save) e.save.addEventListener('click', () => { if (lbIndex >= 0) saveOne(lbIndex); });
+  if (e.save) e.save.addEventListener('click', () => { if (lbIndex >= 0 && lbSession && lbSession.type === 'generated') saveOne(lbIndex); });
   const close = el('cd-lb-close');
   if (close) close.addEventListener('click', closeLightbox);
   /* 点背景关闭，点图不关。要求「按下和松开都在背景上」——
@@ -665,6 +840,13 @@ function bindLightbox() {
   e.box.addEventListener('click', (ev) => {
     if (ev.target === e.box && downOnBackdrop) closeLightbox();
     downOnBackdrop = false;
+  });
+  let swipeX = null, swipeAt = 0;
+  e.stage.addEventListener('pointerdown', (ev) => { swipeX = ev.clientX; swipeAt = Date.now(); });
+  e.stage.addEventListener('pointerup', (ev) => {
+    if (swipeX == null || !lbSession || lbSession.type !== 'example') { swipeX = null; return; }
+    const dx = ev.clientX - swipeX, dt = Math.max(1, Date.now() - swipeAt); swipeX = null;
+    if (Math.abs(dx) > 56 && (Math.abs(dx) / dt > .18 || Math.abs(dx) > 100)) stepLightbox(dx < 0 ? 1 : -1);
   });
   /* 键盘。挂在 window 上，所以必须先问「现在轮到我了吗」——
      三个能力共用一个 window，不问的话在别的能力页按 ← → 也会翻这里的图。
@@ -796,6 +978,16 @@ function bind() {
   const D = window.DSCards;
   if (!D) { toast('排版引擎没加载成功', 'err', 5000); return; }
 
+  const styleToggle = el('cd-style-toggle'), styleClose = el('cd-style-close');
+  if (styleToggle) styleToggle.addEventListener('click', () => toggleStyle());
+  if (styleClose) styleClose.addEventListener('click', () => toggleStyle(false));
+  const surfaceNav = el('cd-mobile-surfaces');
+  if (surfaceNav) surfaceNav.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-surface]'); if (b) setMobileSurface(b.dataset.surface);
+  });
+  window.addEventListener('resize', paintWorkspace);
+  paintWorkspace();
+
   buildSeg(el('cd-ratio'),
     D.RATIOS.map((r) => ({ v: r.id, label: r.name, hint: r.hint })),
     () => state.ratio, (v) => { state.ratio = v; });
@@ -803,6 +995,40 @@ function bind() {
   buildSeg(el('cd-bg'),
     D.BACKGROUNDS.map((b) => ({ v: b.id, label: b.name, swatch: swatchOf(b.id) })),
     () => state.background, (v) => { state.background = v; });
+  buildSeg(el('cd-font-family'),
+    D.FONTS.map((f) => ({ v: f.id, label: f.name })),
+    () => state.fontFamily, (v) => { state.fontFamily = v; });
+  buildSeg(el('cd-code-style'),
+    D.CODE_STYLES.map((s) => ({ v: s.id, label: s.name })),
+    () => state.codeStyle, (v) => { state.codeStyle = v; });
+
+  const themes = el('cd-themes');
+  if (themes) {
+    themes.innerHTML = D.THEMES.map((theme) => `<button type="button" class="cd-theme-card theme-${theme.id}" data-theme="${theme.id}"><span class="cd-theme-demo"><i></i><b>Aa</b></span><span>${theme.name}</span></button>`).join('');
+    themes.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-theme]'); if (!b) return;
+      const theme = D.THEMES.find((t) => t.id === b.dataset.theme); if (!theme) return;
+      Object.assign(state, theme.values); sync(); schedule();
+    });
+  }
+  const accents = el('cd-accent');
+  if (accents) {
+    accents.innerHTML = D.ACCENT_COLORS.map((a) => `<button type="button" data-accent="${a.id}" title="${a.name}" class="${a.id === 'auto' ? 'auto' : ''}" style="${a.color ? '--sw:' + a.color : ''}"><span>${a.id === 'auto' ? '自动' : ''}</span></button>`).join('');
+    accents.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-accent]'); if (!b) return;
+      state.accentColor = b.dataset.accent; sync(); schedule();
+    });
+    accents._sync = () => accents.querySelectorAll('[data-accent]').forEach((b) => b.classList.toggle('on', b.dataset.accent === state.accentColor));
+  }
+  const heading = el('cd-heading-style');
+  if (heading) {
+    heading.innerHTML = D.HEADING_STYLES.map((s) => `<button type="button" data-heading="${s.id}"><span class="heading-demo ${s.id}"><i></i><b>标题</b></span><span>${s.name}</span></button>`).join('');
+    heading.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-heading]'); if (!b) return;
+      state.headingStyle = b.dataset.heading; sync(); schedule();
+    });
+    heading._sync = () => heading.querySelectorAll('[data-heading]').forEach((b) => b.classList.toggle('on', b.dataset.heading === state.headingStyle));
+  }
 
   // scale / wmPos / mode 的按钮是写死在 HTML 里的，只补 sync + 点击
   [['cd-scale', 'scale', (v) => +v], ['cd-wm-pos', 'wmPos', (v) => v]].forEach(([id, key, cast]) => {
@@ -868,7 +1094,12 @@ function bind() {
   }
 
   const clear = el('cd-clear');
-  if (clear) clear.addEventListener('click', () => { if (src) { src.value = ''; draw(); src.focus(); } });
+  if (clear) clear.addEventListener('click', () => {
+    if (state.mode === 'manual') { state.pages = [{ text: '' }]; ui.activePage = 0; renderPageList(); draw(); return; }
+    if (src) { src.value = ''; draw(); src.focus(); }
+  });
+  const restoreExample = el('cd-restore-example');
+  if (restoreExample) restoreExample.addEventListener('click', restoreStarter);
 
   /* 「取当前文档」—— 这是这个能力最有价值的入口：文档已经在手上，
      不用复制粘贴。MDW 是 Markdown 工作台挂在 window 上的 API；
@@ -904,6 +1135,15 @@ function bind() {
   range('cd-blur', 'blur', (v) => +v);
   range('cd-font', 'fontScale', (v) => +v / 100);
   range('cd-wm-op', 'wmOpacity', (v) => +v / 100);
+
+  const customAccent = el('cd-accent-custom');
+  if (customAccent) customAccent.addEventListener('input', () => {
+    state.accentColor = customAccent.value.toLowerCase(); sync(); schedule();
+  });
+  const macDots = el('cd-mac-dots');
+  if (macDots) macDots.addEventListener('change', () => {
+    state.macDots = macDots.checked; sync(); schedule();
+  });
 
   const wmText = el('cd-wm-text');
   if (wmText) wmText.addEventListener('input', () => { state.wmText = wmText.value.trim(); savePrefs(); schedule(); });
@@ -981,6 +1221,8 @@ function bind() {
     const back = {
       blur: () => setVal('cd-blur', state.blur),
       fontScale: () => setVal('cd-font', Math.round(state.fontScale * 100)),
+      accentColor: () => { if (/^#[0-9a-f]{6}$/i.test(state.accentColor)) setVal('cd-accent-custom', state.accentColor); },
+      macDots: () => { const e = el('cd-mac-dots'); if (e) e.checked = !!state.macDots; },
       wmOpacity: () => setVal('cd-wm-op', Math.round(state.wmOpacity * 100)),
       wmText: () => setVal('cd-wm-text', state.wmText),
       pageNo: () => { const e = el('cd-pageno'); if (e) e.checked = !!state.pageNo; },
@@ -994,7 +1236,8 @@ function bind() {
     if (back[hit[0]]) back[hit[0]]();
     /* ⚠ 这里不能调 sync() —— 它会 savePrefs()，把刚被「忘掉」的值又写回去。
        只刷选中态和读数即可。 */
-    root().querySelectorAll('.cd-seg').forEach((s) => { if (s._sync) s._sync(); });
+    root().querySelectorAll('.cd-seg, .cd-colors, .cd-visual-options').forEach((s) => { if (s._sync) s._sync(); });
+    syncThemeLabel();
     const bv = el('cd-blur-val'); if (bv) bv.textContent = state.blur + ' px';
     const fv = el('cd-font-val'); if (fv) fv.textContent = Math.round(state.fontScale * 100) + '%';
     const ov = el('cd-wm-op-val'); if (ov) ov.textContent = Math.round(state.wmOpacity * 100) + '%';
@@ -1002,6 +1245,7 @@ function bind() {
   });
 
   bindLightbox();
+  renderExampleEntry();
 
   /* ---- 把记住的参数灌回界面 ----
      顺序要紧：先 loadPrefs 改 state，再把**输入类控件**的值写回去
@@ -1012,6 +1256,8 @@ function bind() {
   loadPrefs();
   setVal('cd-blur', state.blur);
   setVal('cd-font', Math.round(state.fontScale * 100));
+  if (/^#[0-9a-f]{6}$/i.test(state.accentColor)) setVal('cd-accent-custom', state.accentColor);
+  const md = el('cd-mac-dots'); if (md) md.checked = !!state.macDots;
   setVal('cd-wm-op', Math.round(state.wmOpacity * 100));
   setVal('cd-wm-text', state.wmText);
   const pn = el('cd-pageno'); if (pn) pn.checked = !!state.pageNo;
@@ -1027,6 +1273,9 @@ function bind() {
      而且 renderPageList 会顺手把「几页」那个计数填上。 */
   renderPageList();
   sync();
+  /* 新会话直接给一份可编辑草稿。它不进偏好、不做特殊模式；用户改的就是
+     真内容，右边走的也是真渲染。清空后不会自动回来，只能主动点“恢复示例”。 */
+  if (src && !src.value.trim() && state.mode === 'auto') src.value = STARTER_CONTENT;
   draw();
 }
 

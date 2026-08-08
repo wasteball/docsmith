@@ -74,6 +74,11 @@ const DEFAULTS = {
   'cards.background': 'paper',
   'cards.blur': 18,
   'cards.fontScale': 1,
+  'cards.fontFamily': 'sans',
+  'cards.accentColor': 'auto',
+  'cards.headingStyle': 'center-rule',
+  'cards.codeStyle': 'terminal',
+  'cards.macDots': true,
   'cards.wmText': '',               // 水印文字（这个算偏好，不算内容）
   'cards.wmPos': 'br',
   'cards.wmOpacity': 0.55,

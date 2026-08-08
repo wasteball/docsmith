@@ -34,10 +34,74 @@
   /* ---------------------------------------------------------------- 字体
      和 doc.css 同一套取向：西文在前、中文紧跟，各自取各自最合适的那款。
      这里必须写成一个字符串给 canvas 的 ctx.font 用。 */
-  var FONT_SANS = '"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei UI",'
-                + '"Microsoft YaHei","Source Han Sans SC","Noto Sans CJK SC",system-ui,sans-serif';
+  var FONT_STACKS = {
+    sans: '"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei UI","Microsoft YaHei",'
+        + '"Source Han Sans SC","Noto Sans CJK SC",system-ui,sans-serif',
+    serif: '"Source Han Serif SC","Noto Serif CJK SC","Songti SC","SimSun",Georgia,serif',
+    rounded: '"PingFang SC","HarmonyOS Sans SC","Source Han Sans SC","YouYuan","幼圆",'
+           + '"Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif'
+  };
   var FONT_MONO = 'ui-monospace,"SFMono-Regular","JetBrains Mono",Menlo,Consolas,'
                 + '"Microsoft YaHei UI",monospace';
+
+  /* 消费级样式目录。界面从这里生成控件，排版引擎也从这里校验 id，避免两边
+     各抄一份后慢慢走岔。主题只是若干具体参数的快捷组合，不是另一套渲染模式。 */
+  var FONTS = [
+    { id: 'sans', name: '现代黑体' },
+    { id: 'serif', name: '书刊宋体' },
+    { id: 'rounded', name: '圆润字体' }
+  ];
+  var ACCENT_COLORS = [
+    { id: 'auto', name: '自动搭配', color: '' },
+    { id: '#315b8a', name: '靛蓝', color: '#315b8a' },
+    { id: '#e66b58', name: '珊瑚', color: '#e66b58' },
+    { id: '#d59618', name: '琥珀', color: '#d59618' },
+    { id: '#398565', name: '松绿', color: '#398565' },
+    { id: '#177c82', name: '深青', color: '#177c82' },
+    { id: '#8b5278', name: '梅紫', color: '#8b5278' }
+  ];
+  var HEADING_STYLES = [
+    { id: 'center-rule', name: '居中短线' },
+    { id: 'left-rule', name: '左对齐短线' },
+    { id: 'left-bar', name: '左侧色条' }
+  ];
+  var CODE_STYLES = [
+    { id: 'soft', name: '柔和' },
+    { id: 'terminal', name: '终端' },
+    { id: 'minimal', name: '极简' }
+  ];
+  var THEMES = [
+    { id: 'clean', name: '清爽白', values: { background: 'paper', fontFamily: 'sans', accentColor: 'auto', headingStyle: 'center-rule', codeStyle: 'terminal', macDots: true } },
+    { id: 'cream', name: '奶油手账', values: { background: 'warm', fontFamily: 'rounded', accentColor: '#c56a3d', headingStyle: 'left-rule', codeStyle: 'soft', macDots: true } },
+    { id: 'mint-note', name: '清新笔记', values: { background: 'mint', fontFamily: 'sans', accentColor: '#2f8f6b', headingStyle: 'left-bar', codeStyle: 'minimal', macDots: true } },
+    { id: 'night-magazine', name: '深夜杂志', values: { background: 'ink', fontFamily: 'serif', accentColor: '#4fc3d7', headingStyle: 'left-bar', codeStyle: 'terminal', macDots: true } }
+  ];
+
+  function enumValue(list, value, fallback) {
+    for (var i = 0; i < list.length; i++) if (list[i].id === value) return value;
+    return fallback;
+  }
+  function normalizeHex(value) {
+    var s = String(value || '').trim().toLowerCase();
+    if (/^#[0-9a-f]{3}$/.test(s)) s = '#' + s.slice(1).split('').map(function (c) { return c + c; }).join('');
+    return /^#[0-9a-f]{6}$/.test(s) ? s : 'auto';
+  }
+  function normalizeOptions(opts) {
+    opts = opts || {};
+    var out = {};
+    for (var k in opts) if (Object.prototype.hasOwnProperty.call(opts, k)) out[k] = opts[k];
+    out.ratio = enumValue(RATIOS, out.ratio, '3:4');
+    out.scale = Math.max(1, Math.min(2, +out.scale || 1));
+    out.background = out.background || 'paper';
+    out.blur = Math.max(0, Math.min(60, +out.blur || 0));
+    out.fontScale = Math.max(.8, Math.min(1.3, +out.fontScale || 1));
+    out.fontFamily = enumValue(FONTS, out.fontFamily, 'sans');
+    out.accentColor = out.accentColor === 'auto' ? 'auto' : normalizeHex(out.accentColor);
+    out.headingStyle = enumValue(HEADING_STYLES, out.headingStyle, 'center-rule');
+    out.codeStyle = enumValue(CODE_STYLES, out.codeStyle, 'terminal');
+    out.macDots = out.macDots === undefined ? true : !!out.macDots;
+    return out;
+  }
 
   /* ------------------------------------------------------- 极简 Markdown
      卡片不需要完整的 Markdown 支持 —— 它需要的是「标题、正文、列表、
@@ -187,12 +251,12 @@
    * 把若干 run 排成行。
    * @returns [{ pieces:[{text,bold,code,del,w}], w }]
    */
-  function layoutRuns(ctx, runs, maxW, style) {
+  function layoutRuns(ctx, runs, maxW, style, fontFamily) {
     var lines = [], cur = [], curW = 0;
 
     function fontFor(run) {
       var weight = run.bold ? '700' : String(style.weight || '400');
-      var fam = run.code ? FONT_MONO : FONT_SANS;
+      var fam = run.code ? FONT_MONO : (FONT_STACKS[fontFamily] || FONT_STACKS.sans);
       var size = run.code ? Math.round(style.size * 0.92) : style.size;
       return weight + ' ' + size + 'px ' + fam;
     }
@@ -258,26 +322,32 @@
        · **段间距大于行距**。段落之间要能"喘口气"，读者扫得快。
        · **引用块带左边条 + 淡底色**，不只是一根线 —— 手机上一根细线不够显眼。
        · **代码块带标题栏**（显示语言名），和正文明确分开。 */
-  function specOf(W, H, scale) {
+  function specOf(W, H, scale, opts) {
+    opts = opts || {};
     var k = (W / 1242) * (scale || 1);
     var padX = Math.round(W * 0.098);          // 左右留白约 10%
     return {
+      fontFamily: opts.fontFamily || 'sans',
+      headingStyle: opts.headingStyle || 'center-rule',
+      codeStyle: opts.codeStyle || 'terminal',
+      macDots: opts.macDots === undefined ? true : !!opts.macDots,
+      fontStack: FONT_STACKS[opts.fontFamily] || FONT_STACKS.sans,
       k: k,
       padX: padX,
       padTop: Math.round(H * 0.085),
       padBottom: Math.round(H * 0.075),
       maxW: W - padX * 2,
-      /* 正文行高 1.85（原 1.75）—— 学 Doocs 的取向，中文长句更好扫。 */
-      body:    { size: Math.round(46 * k), line: 1.85, weight: 400 },
-      h1:      { size: Math.round(74 * k), line: 1.34, weight: 700 },
-      h2:      { size: Math.round(58 * k), line: 1.4,  weight: 700 },
-      h3:      { size: Math.round(50 * k), line: 1.45, weight: 600 },
-      quote:   { size: Math.round(42 * k), line: 1.75, weight: 400 },
-      code:    { size: Math.round(36 * k), line: 1.62, weight: 400 },
-      caption: { size: Math.round(30 * k), line: 1.4,  weight: 400 },
-      /* 段间距从 30 提到 38：段落之间"喘口气"，是 Doocs 观感舒服的关键之一 */
-      gap:     Math.round(38 * k),
-      gapTight: Math.round(16 * k),         // 标题和它下面那段之间
+      /* 卡片要在手机上看清，也要装得下一段完整观点。参考成熟排版工具的层级，
+         但按 3:4 卡片重新收紧字号、行距和段距，不照搬窄长网页。 */
+      body:    { size: Math.round(43 * k), line: 1.70, weight: 400 },
+      h1:      { size: Math.round(67 * k), line: 1.30, weight: 700 },
+      h2:      { size: Math.round(52 * k), line: 1.34, weight: 700 },
+      h3:      { size: Math.round(47 * k), line: 1.38, weight: 600 },
+      quote:   { size: Math.round(40 * k), line: 1.62, weight: 400 },
+      code:    { size: Math.round(34 * k), line: 1.58, weight: 400 },
+      caption: { size: Math.round(28 * k), line: 1.35, weight: 400 },
+      gap:     Math.round(29 * k),
+      gapTight: Math.round(12 * k),         // 标题和它下面那段之间
       /* 标题下面那道短横线（Doocs 的标志性细节） */
       hrule:   { w: Math.round(W * 0.11), h: Math.max(3, Math.round(5 * k)), gap: Math.round(18 * k) }
     };
@@ -310,23 +380,25 @@
           return { pieces: [{ text: t, bold: false, code: true, w: ctx.measureText(t).width }],
                    w: ctx.measureText(t).width, pre: true };
         });
-        item.pad = Math.round(sp.gap * 0.7);
+        item.pad = Math.round(sp.gap * 0.82);
+        item.chrome = sp.macDots ? Math.round(50 * sp.k) : 0;
       } else if (b.type === 'li') {
         var marker = b.ordered ? (b.num + '. ') : '· ';
-        ctx.font = '400 ' + style.size + 'px ' + FONT_SANS;
+        ctx.font = '400 ' + style.size + 'px ' + sp.fontStack;
         item.indent = ctx.measureText(b.ordered ? '99. ' : '· ').width;
         item.marker = marker;
-        item.lines = layoutRuns(ctx, tokenizeInline(b.text), sp.maxW - item.indent, style);
+        item.lines = layoutRuns(ctx, tokenizeInline(b.text), sp.maxW - item.indent, style, sp.fontFamily);
       } else {
-        item.lines = layoutRuns(ctx, tokenizeInline(b.text || ''), sp.maxW, style);
+        item.lines = layoutRuns(ctx, tokenizeInline(b.text || ''), sp.maxW - (b.type === 'heading' && sp.headingStyle === 'left-bar' ? Math.round(28 * sp.k) : 0), style, sp.fontFamily);
       }
       /* 标题下面那道短横线要占高度，否则它会压到下一段上（学 Doocs 的样式，
          但必须把它算进布局里，不然分页就算错了）。
          只给 h1/h2 加 —— h3 已经很小，再加线就碎了。 */
-      if (b.type === 'heading' && b.level <= 2) {
+      if (b.type === 'heading' && b.level <= 2 && sp.headingStyle !== 'left-bar') {
         item.rule = sp.hrule.gap + sp.hrule.h;
       }
-      item.height = item.lines.length * item.lineH + (item.pad ? item.pad * 2 : 0) + (item.rule || 0);
+      item.height = item.lines.length * item.lineH + (item.pad ? item.pad * 2 : 0)
+                  + (item.rule || 0) + (item.chrome || 0);
       out.push(item);
     }
     return out;
@@ -354,7 +426,7 @@
       var it = measured[i];
       var gap = cur.length ? (isHeading(measured[i - 1]) ? sp.gapTight : sp.gap) : 0;
       var lineH = it.lineH;
-      var padded = it.pad ? it.pad * 2 : 0;
+      var padded = (it.pad ? it.pad * 2 : 0) + (it.chrome || 0);
 
       // 标题：得确认它后面还能跟下至少 2 行，否则整个挪到下一页
       if (isHeading(it)) {
@@ -433,7 +505,19 @@
    * 只采样文字会落到的那块区域（padX..W-padX），不看整张图 —— 四角的深色
    * 装饰不该影响正文的判断。
    */
-  function autoContrast(ctx, W, H, sp) {
+  function hexRgb(hex) {
+    var s = normalizeHex(hex); if (s === 'auto') return null;
+    return { r: parseInt(s.slice(1, 3), 16), g: parseInt(s.slice(3, 5), 16), b: parseInt(s.slice(5, 7), 16) };
+  }
+  function accentFor(value, whiteText) {
+    var rgb = hexRgb(value);
+    if (!rgb) return whiteText ? 'rgba(120,220,232,.92)' : 'rgba(80,90,190,.88)';
+    var mix = whiteText ? 0.18 : 0;
+    var target = whiteText ? 255 : 0;
+    var channel = function (v) { return Math.round(v + (target - v) * mix); };
+    return 'rgb(' + channel(rgb.r) + ',' + channel(rgb.g) + ',' + channel(rgb.b) + ')';
+  }
+  function autoContrast(ctx, W, H, sp, accentColor) {
     var x = sp.padX, y = sp.padTop, w = Math.max(1, W - sp.padX * 2), h = Math.max(1, H - sp.padTop - sp.padBottom);
     var data;
     try { data = ctx.getImageData(x, y, w, h).data; }
@@ -442,8 +526,9 @@
        悄悄沿用上一次的颜色，出来一张颜色错乱的图而且不报错。 */
     catch (e) {
       return { fg: '#1b1b1f', dim: 'rgba(27,27,31,.62)', rule: 'rgba(27,27,31,.18)',
-               codeBg: 'rgba(27,27,31,.06)', codeFg: '#b03060',
-               accent: 'rgba(80,90,190,.88)',
+               codeBg: 'rgba(49,91,138,.075)', codeFg: '#245c91', codeBorder: 'rgba(49,91,138,.24)',
+               quoteBg: 'rgba(49,91,138,.065)', quoteFg: 'rgba(27,27,31,.82)',
+               accent: accentFor(accentColor, false),
                scrim: 0, scrimColor: 'rgba(255,255,255,0)', luminance: 1, contrast: 21 };
     }
     var L = 0, n = 0;
@@ -464,15 +549,16 @@
       fg: white ? '#ffffff' : '#1b1b1f',
       dim: white ? 'rgba(255,255,255,.72)' : 'rgba(27,27,31,.62)',
       rule: white ? 'rgba(255,255,255,.28)' : 'rgba(27,27,31,.18)',
-      codeBg: white ? 'rgba(255,255,255,.10)' : 'rgba(27,27,31,.06)',
-      /* 行内代码换个色相，和正文区分开。亮底用偏暖的红棕（和 doc.css 的
-         --doc-inline-fg 同一个取向），暗底用偏亮的粉 —— 两者都还压得住
-         对比度，不会为了"好看"牺牲可读性。 */
-      codeFg: white ? '#ffb4c4' : '#b03060',
+      codeBg: white ? 'rgba(255,255,255,.11)' : 'rgba(49,91,138,.075)',
+      codeFg: white ? '#b8dcff' : '#245c91',
+      codeBorder: white ? 'rgba(184,220,255,.30)' : 'rgba(49,91,138,.24)',
+      quoteBg: white ? 'rgba(255,255,255,.10)' : 'rgba(49,91,138,.065)',
+      quoteFg: white ? 'rgba(255,255,255,.86)' : 'rgba(27,27,31,.82)',
+      /* 行内代码、引用和标题装饰都跟随同一强调色系统，不再各自冒出一种色。 */
       /* 强调色：标题下那道短横线、引用块的左边条用它。
          不用主题色（那是界面色，和卡片背景不一定搭），按底色深浅各给一个
          饱和度合适的值 —— 深底用偏亮的青，亮底用偏深的靛蓝。 */
-      accent: white ? 'rgba(120,220,232,.92)' : 'rgba(80,90,190,.88)',
+      accent: accentFor(accentColor, white),
       scrim: scrim,
       scrimColor: white ? 'rgba(0,0,0,' + scrim.toFixed(3) + ')'
                         : 'rgba(255,255,255,' + scrim.toFixed(3) + ')',
@@ -587,7 +673,7 @@
     }
     if (wm.text) {
       var size = Math.round(sp.caption.size * 0.95);
-      ctx.font = '500 ' + size + 'px ' + FONT_SANS;
+      ctx.font = '500 ' + size + 'px ' + sp.fontStack;
       ctx.fillStyle = colors.fg;
       ctx.textBaseline = 'alphabetic';
       ctx.textAlign = /l$/.test(pos) ? 'left' : 'right';
@@ -605,7 +691,7 @@
     if (total < 2) return;
     var size = sp.caption.size;
     ctx.save();
-    ctx.font = '500 ' + size + 'px ' + FONT_SANS;
+    ctx.font = '500 ' + size + 'px ' + sp.fontStack;
     ctx.fillStyle = colors.dim;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
@@ -632,20 +718,41 @@
       }
 
       var isCode = b.type === 'code', isQuote = b.type === 'quote';
-      var blockH = (slice.to - slice.from) * it.lineH + (it.pad && slice.from === 0 ? it.pad * 2 : 0);
+      var chromeH = isCode && sp.macDots ? (it.chrome || 0) : 0;
+      var blockH = (slice.to - slice.from) * it.lineH
+                 + (it.pad && slice.from === 0 ? it.pad * 2 : 0) + chromeH;
 
       if (isCode) {
         ctx.save();
-        ctx.fillStyle = colors.codeBg;
+        if (sp.codeStyle === 'terminal') ctx.fillStyle = '#0f131a';
+        else if (sp.codeStyle === 'minimal') ctx.fillStyle = 'rgba(0,0,0,.018)';
+        else ctx.fillStyle = colors.codeBg;
         roundRect(ctx, sp.padX, y, W - sp.padX * 2, blockH, Math.round(16 * sp.k));
         ctx.fill();
+        if (sp.codeStyle === 'minimal') {
+          ctx.strokeStyle = colors.rule; ctx.lineWidth = Math.max(1, Math.round(1.5 * sp.k)); ctx.stroke();
+        }
+        if (chromeH) {
+          var dotR = Math.max(4, Math.round(7 * sp.k));
+          var dotY = y + Math.round(chromeH * .44), dotX = sp.padX + Math.round(28 * sp.k);
+          ['#ff6b63', '#f7c24b', '#58c95b'].forEach(function (color, di) {
+            ctx.beginPath(); ctx.fillStyle = color;
+            ctx.arc(dotX + di * dotR * 2.8, dotY, dotR, 0, Math.PI * 2); ctx.fill();
+          });
+          if (b.lang) {
+            ctx.font = '500 ' + Math.round(22 * sp.k) + 'px ' + FONT_MONO;
+            ctx.fillStyle = sp.codeStyle === 'terminal' ? 'rgba(232,237,244,.48)' : colors.dim;
+            ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+            ctx.fillText(String(b.lang).toUpperCase(), W - sp.padX - Math.round(24 * sp.k), dotY);
+          }
+        }
         ctx.restore();
       }
       if (isQuote) {
         /* 淡底色 + 左边一根粗条。原来只有那根条 —— 手机上一根细线不够显眼，
            读者扫过去分不出这是引用。Doocs 的做法是"底色 + 边条"，学它。 */
         ctx.save();
-        ctx.fillStyle = colors.codeBg;
+        ctx.fillStyle = colors.quoteBg;
         roundRect(ctx, sp.padX, y, W - sp.padX * 2, blockH, Math.round(10 * sp.k));
         ctx.fill();
         ctx.fillStyle = colors.accent || colors.rule;
@@ -655,11 +762,12 @@
         ctx.restore();
       }
 
+      var headingInset = b.type === 'heading' && sp.headingStyle === 'left-bar' ? Math.round(28 * sp.k) : 0;
       var textX = sp.padX
         + (isCode ? Math.round(sp.gap * 0.7) : 0)
         + (isQuote ? Math.round(sp.gap * 0.8) : 0)
-        + (it.indent || 0);
-      var ty = y + (it.pad && slice.from === 0 ? it.pad : 0);
+        + headingInset + (it.indent || 0);
+      var ty = y + (it.pad && slice.from === 0 ? it.pad : 0) + chromeH;
 
       for (var li = slice.from; li < slice.to; li++) {
         var line = it.lines[li];
@@ -668,10 +776,12 @@
         // 列表符号只画在这一项的第一行
         if (it.marker && li === 0) {
           ctx.save();
-          ctx.font = '400 ' + it.style.size + 'px ' + FONT_SANS;
-          ctx.fillStyle = colors.dim;
+          ctx.font = '400 ' + it.style.size + 'px ' + sp.fontStack;
+          ctx.fillStyle = colors.accent;
           ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-          ctx.fillText(it.marker, sp.padX, baseline);
+          var marker = it.marker;
+          if (!b.ordered) { ctx.font = '700 ' + Math.round(it.style.size * 1.18) + 'px ' + sp.fontStack; marker = '•'; }
+          ctx.fillText(marker, sp.padX, baseline);
           ctx.restore();
         }
 
@@ -679,10 +789,17 @@
            层级也更清楚；正文仍然左对齐 —— 中文长段落居中会很难读。
            居中要按这一行的实际宽度算起点，所以先把这行总宽加出来。 */
         var x = textX;
-        if (b.type === 'heading') {
+        if (b.type === 'heading' && sp.headingStyle === 'center-rule') {
           var lineW = 0;
           for (var wi = 0; wi < line.pieces.length; wi++) lineW += line.pieces[wi].w;
           x = Math.round((W - lineW) / 2);
+        }
+        if (b.type === 'heading' && sp.headingStyle === 'left-bar' && li === slice.from) {
+          ctx.save();
+          ctx.fillStyle = colors.accent || colors.rule;
+          roundRect(ctx, sp.padX, baseline - it.style.size * .86,
+                    Math.max(4, Math.round(7 * sp.k)), it.style.size * 1.02, Math.round(4 * sp.k));
+          ctx.fill(); ctx.restore();
         }
         for (var pi = 0; pi < line.pieces.length; pi++) {
           var p = line.pieces[pi];
@@ -698,11 +815,13 @@
             roundRect(ctx, x - padH, baseline - size * 0.92 - padV,
                       p.w + padH * 2, size * 1.18 + padV * 2, Math.round(size * 0.22));
             ctx.fill();
+            ctx.strokeStyle = colors.codeBorder; ctx.lineWidth = Math.max(1, Math.round(1.2 * sp.k)); ctx.stroke();
             ctx.restore();
           }
           ctx.save();
-          ctx.font = weight + ' ' + size + 'px ' + (p.code || line.pre ? FONT_MONO : FONT_SANS);
-          ctx.fillStyle = isQuote ? colors.dim : (p.code && !line.pre ? colors.codeFg : colors.fg);
+          ctx.font = weight + ' ' + size + 'px ' + (p.code || line.pre ? FONT_MONO : sp.fontStack);
+          ctx.fillStyle = line.pre && sp.codeStyle === 'terminal' ? '#e8edf4'
+            : (isQuote ? colors.quoteFg : (p.code && !line.pre ? colors.codeFg : colors.fg));
           ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
           ctx.fillText(p.text, x, baseline);
           if (p.del) {
@@ -766,7 +885,7 @@
     c.width = W; c.height = H;
     var ctx = c.getContext('2d');
     paintBackground(ctx, W, H, pageOpts);
-    var colors = autoContrast(ctx, W, H, sp);
+    var colors = autoContrast(ctx, W, H, sp, pageOpts.accentColor);
     if (colors.scrim > 0) { ctx.fillStyle = colors.scrimColor; ctx.fillRect(0, 0, W, H); }
 
     /* 手动模式下这一页可能写多了装不下。**不静默裁掉** —— 那样用户会
@@ -776,7 +895,8 @@
     var used = 0;
     var slices = measured.map(function (it, i) {
       if (i) used += isHeading(measured[i - 1]) ? sp.gapTight : sp.gap;
-      used += it.lines.length * it.lineH + (it.pad ? it.pad * 2 : 0);
+      used += it.lines.length * it.lineH + (it.pad ? it.pad * 2 : 0)
+            + (it.rule || 0) + (it.chrome || 0);
       return { item: it, from: 0, to: it.lines.length };
     });
 
@@ -793,9 +913,9 @@
    * @returns {{canvases, pages, overflows:number[], meta}}
    */
   function renderPages(pages, opts) {
-    opts = opts || {};
+    opts = normalizeOptions(opts);
     var dim = dimsOf(opts);
-    var sp = specOf(dim.W, dim.H, opts.fontScale || 1);
+    var sp = specOf(dim.W, dim.H, opts.fontScale || 1, opts);
     var list = Array.isArray(pages) ? pages : [];
     if (!list.length) list = [{ text: '' }];
 
@@ -851,10 +971,10 @@
    * @returns {{canvases: HTMLCanvasElement[], pages:number, meta:Object}}
    */
   function render(text, opts) {
-    opts = opts || {};
+    opts = normalizeOptions(opts);
     var dim = dimsOf(opts);
     var W = dim.W, H = dim.H;
-    var sp = specOf(W, H, opts.fontScale || 1);
+    var sp = specOf(W, H, opts.fontScale || 1, opts);
 
     /* 量的时候需要一个 ctx，但不需要真画。用一张 1×1 的就够 —— font 和
        measureText 不依赖画布大小。 */
@@ -878,7 +998,7 @@
       c.width = W; c.height = H;
       var ctx = c.getContext('2d');
       paintBackground(ctx, W, H, opts);
-      var colors = autoContrast(ctx, W, H, sp);
+      var colors = autoContrast(ctx, W, H, sp, opts.accentColor);
       if (colors.scrim > 0) { ctx.fillStyle = colors.scrimColor; ctx.fillRect(0, 0, W, H); }
       drawPage(ctx, pages[p], W, H, sp, colors);
       if (opts.pageNo !== false) drawPageNo(ctx, W, H, sp, ++no, total, colors);
@@ -901,9 +1021,9 @@
    * 被拆开的段落按行取回（行里的 pieces 拼起来就是那一行的文字）。
    */
   function splitToPages(text, opts) {
-    opts = opts || {};
+    opts = normalizeOptions(opts);
     var dim = dimsOf(opts);
-    var sp = specOf(dim.W, dim.H, opts.fontScale || 1);
+    var sp = specOf(dim.W, dim.H, opts.fontScale || 1, opts);
     var probe = document.createElement('canvas').getContext('2d');
     var blocks = parseBlocks(text);
     if (!blocks.length) return [''];
@@ -951,11 +1071,11 @@
     c.width = W; c.height = H;
     var ctx = c.getContext('2d');
     paintBackground(ctx, W, H, opts);
-    var colors = autoContrast(ctx, W, H, sp);
+    var colors = autoContrast(ctx, W, H, sp, opts.accentColor);
     if (colors.scrim > 0) { ctx.fillStyle = colors.scrimColor; ctx.fillRect(0, 0, W, H); }
 
     var style = { size: Math.round(sp.h1.size * 1.18), line: 1.3, weight: 700 };
-    var lines = layoutRuns(ctx, tokenizeInline(title), sp.maxW, style);
+    var lines = layoutRuns(ctx, tokenizeInline(title), sp.maxW, style, sp.fontFamily);
     var lineH = Math.round(style.size * style.line);
     var totalH = lines.length * lineH;
     var y = Math.max(sp.padTop, (H - totalH) / 2 - H * 0.04);
@@ -965,7 +1085,7 @@
       for (var pi = 0; pi < lines[i].pieces.length; pi++) {
         var p = lines[i].pieces[pi];
         ctx.save();
-        ctx.font = '700 ' + style.size + 'px ' + FONT_SANS;
+        ctx.font = '700 ' + style.size + 'px ' + sp.fontStack;
         ctx.fillStyle = colors.fg;
         ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
         ctx.fillText(p.text, x, baseline);
@@ -1009,6 +1129,11 @@
   window.DSCards = {
     RATIOS: RATIOS,
     BACKGROUNDS: BACKGROUNDS,
+    THEMES: THEMES,
+    FONTS: FONTS,
+    ACCENT_COLORS: ACCENT_COLORS,
+    HEADING_STYLES: HEADING_STYLES,
+    CODE_STYLES: CODE_STYLES,
     WM_POS: WM_POS,
     parseBlocks: parseBlocks,
     render: render,
@@ -1024,7 +1149,8 @@
       specOf: specOf,
       relLuminance: relLuminance,
       contrastRatio: contrastRatio,
-      autoContrast: autoContrast
+      autoContrast: autoContrast,
+      normalizeOptions: normalizeOptions
     }
   };
 })();

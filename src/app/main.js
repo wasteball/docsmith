@@ -871,6 +871,11 @@ const MEMORY_GROUPS = [
       { key: 'cards.scale', name: '清晰度' },
       { key: 'cards.background', name: '背景' },
       { key: 'cards.fontScale', name: '字号' },
+      { key: 'cards.fontFamily', name: '字体' },
+      { key: 'cards.accentColor', name: '主题色' },
+      { key: 'cards.headingStyle', name: '标题样式' },
+      { key: 'cards.codeStyle', name: '代码样式' },
+      { key: 'cards.macDots', name: 'Mac 窗口圆点' },
       { key: 'cards.blur', name: '背景模糊' },
       { key: 'cards.wmText', name: '水印文字' },
       { key: 'cards.wmPos', name: '水印位置' },
@@ -925,6 +930,10 @@ function memValue(item) {
       'cards.mode': { auto: '自动分页', manual: '逐页编辑' },
       'cards.ratio': { '3:4': '3:4（小红书竖版）', '1:1': '1:1（方图）', '9:16': '9:16（抖音）', '4:3': '4:3（横版）' },
       'cards.scale': { 1: '标准', 2: '高清 2×' },
+      'cards.fontFamily': { sans: '现代黑体', serif: '书刊宋体', rounded: '圆润字体' },
+      'cards.accentColor': { auto: '自动搭配' },
+      'cards.headingStyle': { 'center-rule': '居中短线', 'left-rule': '左对齐短线', 'left-bar': '左侧色条' },
+      'cards.codeStyle': { soft: '柔和', terminal: '终端', minimal: '极简' },
       'cards.wmPos': { tl: '左上', tr: '右上', bl: '左下', br: '右下' }
     };
     const map = CARD_LABELS[item.key];
