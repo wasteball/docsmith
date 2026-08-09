@@ -16,7 +16,7 @@
 export const BRAND = {
   name: 'Docsmith',
   nameZh: '文匠',
-  tagline: '文档和图文，从此顺手',
+  tagline: 'Markdown 工作台 · 卡片 · 文件库',
   /* 侧栏折叠时显示的单字标记 */
   mark: 'D',
   repo: 'https://github.com/YOUR-NAME/docsmith',
@@ -30,6 +30,8 @@ export const KEYS = {
   storage: 'docsmith:storage',         // 云存储配置（含凭据，仅本机）
   library: 'docsmith:library',         // 文件库：历史、分类、偏好
   prefs: 'docsmith:prefs',             // 全应用偏好：阅读排版、编辑与导出习惯
+  reviewNotes: 'docsmith:review-notes', // Markdown 工作台：本地评审意见
+  baselines: 'docsmith:confirmed',      // Markdown 工作台：用户确认过的版本
 };
 
 /* --------------------------------------------------------- 内置能力表 *
@@ -45,7 +47,7 @@ export const CAPABILITIES = [
   {
     id: 'markdown',
     name: 'Markdown 工作台',
-    desc: '拖进来就能读 · 改动看得见 · 导出 Word、PDF、网页',
+    desc: '复杂内容舒服读 · 正文表格直接改 · 每处变化逐一核对',
     url: 'src/views/markdown/index.html',
     builtin: true,
     needs: [],

@@ -122,30 +122,30 @@ footer a { color: var(--text-dim); }
 
   <h1>Docsmith 装好了</h1>
   <p class="lede">
-    它能把一份 Markdown 变成排版干净的网页、Word 或 PDF，也能把任何文件传到你自己的
-    云盘上换成一条链接发出去。全部在浏览器侧边的一个面板里完成。
+    Docsmith 是一套以 Markdown 工作台为核心的文档工具。舒服阅读复杂内容，
+    直接编辑正文和表格并核对改动；还能制作图文卡片、管理与转换文件、导出和分享。
   </p>
 
   <h2>它能替你做什么</h2>
 
   <div class="card">
-    <h3>把 Markdown 读舒服</h3>
-    <p>拖一个 .md 文件进来就行。代码、表格、数学公式、流程图都会正常显示，不用装别的东西。</p>
+    <h3>复杂 Markdown 也读得舒服</h3>
+    <p>代码、表格、数学公式、流程图和长文档都能清楚呈现；字号、字体与阅读宽度可以按自己习惯调整。</p>
   </div>
 
   <div class="card">
-    <h3>改完直接导出</h3>
-    <p>可以在阅读界面上直接改字，改完导出成 Word、PDF、网页或原始 Markdown，交给同事就能用。</p>
+    <h3>正文和表格就在阅读界面里改</h3>
+    <p>不用在预览和源码之间来回切。点到哪就改到哪，表格单元格也能直接编辑，同时保留 Markdown 原文。</p>
   </div>
 
   <div class="card">
-    <h3>一键变成链接</h3>
-    <p>点「分享」，文件会传到你自己的云存储，回来一条链接。发给谁，谁点开就能看。</p>
+    <h3>每处变化和评审意见都有迹可循</h3>
+    <p>未保存修改、上次确认后的变化和评审意见集中在一起；可以逐处核对、撤回、定位和解决。</p>
   </div>
 
   <div class="card">
-    <h3>顺手一个文件库</h3>
-    <p>任何文件拖进来都能上传、分类、批量打包下载。Markdown 还能顺便转成 Word 或 PDF。</p>
+    <h3>完成后再交付</h3>
+    <p>保存回 Markdown，或导出 Word、PDF、网页；需要时还能生成分享链接、制作图文卡片和整理文件。</p>
   </div>
 
   <h2>怎么开始</h2>
@@ -153,7 +153,7 @@ footer a { color: var(--text-dim); }
   <ol class="steps">
     <li>
       <b>打开面板</b>
-      <span>点浏览器右上角的 Docsmith 图标，或者按 <kbd>Alt</kbd> + <kbd>D</kbd>。</span>
+      <span>点浏览器工具栏里的 Docsmith 图标，或点本页下方的“打开 Docsmith”。</span>
     </li>
     <li>
       <b>拖一个 Markdown 文件进去</b>
@@ -193,13 +193,8 @@ footer a { color: var(--text-dim); }
 <script type="module">
 import { BRAND } from '../../core/config.js';
 document.getElementById('repo').href = BRAND.repo;
-document.getElementById('open').addEventListener('click', async () => {
-  try {
-    const w = await chrome.windows.getCurrent();
-    await chrome.sidePanel.open({ windowId: w.id });
-  } catch (e) {
-    chrome.tabs.create({ url: chrome.runtime.getURL('src/app/index.html') });
-  }
+document.getElementById('open').addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'docsmith:open-tab' });
 });
 </script>
 </body>

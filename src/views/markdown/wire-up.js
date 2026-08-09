@@ -13,9 +13,11 @@ import { markTables } from './table-marks.js';
 import { mountExportMenu } from './export-menu.js';
 import { rebuildToolbar } from './toolbar.js';
 import { createPalette } from './palette.js';
+import * as notes from './review-notes.js';
 import * as prefs from '../../core/prefs.js';
 
 const $ = (s, r = document) => r.querySelector(s);
+const escHtml = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* workspace.js 会把这些钩子挂上来。它还没就绪时先排队等着。 */
 function whenReady(fn, tries = 40) {
@@ -51,8 +53,8 @@ whenReady(() => {
 
   window.DSReviewer = reviewer;
 
-  /* 审阅不再单独占一个按钮 —— 工具栏上已经有「改动」了，两个入口讲同
-     一件事只会让人犹豫。这里把它挂进「改动」面板底部，以及命令面板。 */
+  /* 工具栏只保留「改动」。原审阅器继续提供“上次确认后的变化”，但不再
+     作为第二个并列入口出现；统一面板里的普通文案负责解释两种对比起点。 */
   const btn = document.createElement('button');
   btn.id = 'reviewBtn';
   btn.type = 'button';
@@ -69,13 +71,12 @@ whenReady(() => {
   }
 
   function paintBadge(n) {
-    // 审阅按钮上标出"有多少处和原稿不一样"。「改动」按钮讲的是"还没保存"，
-    // 两者不是一回事，各自显示各自的数，不混在一个徽标里。
+    // 隐藏按钮仍承接快捷键状态；文案统一使用用户能在面板里看到的“确认点”。
     btn.classList.toggle('has-review', n > 0);
     btn.dataset.n = n > 0 ? (n > 99 ? '99+' : String(n)) : '';
     btn.title = n > 0
-      ? `和打开这篇时相比有 ${n} 处不同 · 表格按单元格上色（Alt + R）`
-      : '和打开这篇时相比没有变化（Alt + R）';
+      ? `上次确认后有 ${n} 处变化 · 表格按单元格上色（Alt + R）`
+      : '上次确认后没有变化（Alt + R）';
   }
 
   /* 往「改动」面板底部塞一个入口。面板每次打开都会重画，所以盯着它。 */
@@ -86,10 +87,14 @@ whenReady(() => {
     const a = document.createElement('button');
     a.type = 'button';
     a.className = 'chg-review-link btn--ghost';
-    a.innerHTML = '逐处审阅 · 表格按单元格对比 <kbd>Alt</kbd><kbd>R</kbd>';
-    a.title = '和「打开这篇时」比，跨会话保留';
+    a.innerHTML = '上次确认后的变化 <kbd>Alt</kbd><kbd>R</kbd>';
+    a.title = '查看从你上次确认这个版本后，又发生了哪些变化';
     a.addEventListener('click', () => { reviewer.toggle(host()); });
     panel.appendChild(a);
+    const doc = MDW.getDoc(), pending = doc?.key ? notes.list(doc.key, 'pending').length : 0;
+    const n = document.createElement('button'); n.type = 'button'; n.className = 'chg-review-link btn--ghost';
+    n.textContent = pending ? `评审意见 · ${pending} 条待处理` : '评审意见';
+    n.addEventListener('click', openNotesPanel); panel.appendChild(n);
   }
   /* 只盯「改动」面板自己的 class 变化。
      原来这里是 observe(document.body, {subtree:true, childList:true, attributes:true})
@@ -102,6 +107,97 @@ whenReady(() => {
       .observe(chgPanelEl, { attributes: true, attributeFilter: ['class'] });
   }
 
+  /* ================================================== 评审意见 */
+  let noteFilter = 'pending';
+
+  function promptNote(anchor) {
+    const doc = MDW.getDoc(); if (!doc?.key) return;
+    const text = prompt('记录评审意见', '');
+    if (!text?.trim()) return;
+    notes.add(doc, anchor, text);
+    paintNoteMarks(); injectReviewEntry();
+    MDW.toast?.('评审意见已记录');
+  }
+
+  function blockAnchor(i) { return notes.blockAnchor(MDW.getBlocks?.() || [], i); }
+  function cellAnchor(i, r, c) {
+    const blocks = MDW.getBlocks?.() || [], table = MDW.getTableData?.(i);
+    const rows = table?.rows || [], headers = table?.head || [];
+    const row = r < 0 ? headers : (rows[r] || []);
+    return notes.cellAnchor(blocks, i, r, c, row[c] || '', headers, row[0] || '');
+  }
+
+  window.addEventListener('docsmith:add-review-note', (e) => {
+    const d = e.detail || {};
+    promptNote(d.kind === 'cell' ? cellAnchor(d.block, d.row, d.col) : blockAnchor(d.block));
+  });
+
+  function paintNoteMarks() {
+    const doc = MDW.getDoc(), blocks = MDW.getBlocks?.() || [], preview = MDW.getPreviewRoot?.();
+    if (!doc?.key || !preview) return;
+    preview.querySelectorAll('.review-note-mark,.review-cell-mark').forEach((x) => x.remove());
+    const grouped = new Map();
+    notes.list(doc.key, 'pending').forEach((note) => {
+      const hit = notes.resolve(note.anchor, blocks); if (!hit) return;
+      const key = hit.index + (note.anchor.kind === 'cell' ? `:${note.anchor.row}:${note.anchor.col}` : '');
+      grouped.set(key, { hit, anchor: note.anchor, count: (grouped.get(key)?.count || 0) + 1 });
+    });
+    grouped.forEach(({ hit, anchor, count }) => {
+      const block = MDW.getBlockElement?.(hit.index); if (!block) return;
+      let target = block;
+      if (anchor.kind === 'cell') {
+        const rows = block.querySelectorAll('tr'), row = anchor.row < 0 ? rows[0] : rows[anchor.row + 1];
+        target = row?.children?.[anchor.col] || block;
+      }
+      const mark = document.createElement('button');
+      mark.type = 'button'; mark.className = anchor.kind === 'cell' ? 'review-cell-mark' : 'review-note-mark';
+      mark.textContent = `💬${count > 1 ? count : ''}`; mark.title = `${count} 条待处理评审意见`;
+      mark.addEventListener('click', (ev) => { ev.stopPropagation(); openNotesPanel(); });
+      target.appendChild(mark);
+    });
+  }
+
+  function noteCard(note, blocks) {
+    const hit = notes.resolve(note.anchor, blocks), unresolved = !hit;
+    const card = document.createElement('article'); card.className = 'review-note-card' + (unresolved ? ' unresolved' : '');
+    card.innerHTML = `<div class="rn-quote">${unresolved ? '⚠ 未定位 · ' : ''}${escHtml(note.quote || '原内容')}</div><p>${escHtml(note.text)}</p><div class="rn-actions"></div>`;
+    const acts = card.querySelector('.rn-actions');
+    const add = (label, fn, cls = '') => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.className = cls; b.onclick = fn; acts.appendChild(b); };
+    if (hit) add('定位', () => MDW.flashBlock?.(hit.index));
+    if (note.status === 'pending') add('标记已解决', () => { notes.resolveNote(MDW.getDoc().key, note.id); }, 'primary');
+    else add('重新打开', () => { notes.reopen(MDW.getDoc().key, note.id); });
+    add('删除', () => { if (confirm('删除这条评审意见？')) notes.remove(MDW.getDoc().key, note.id); }, 'danger');
+    return card;
+  }
+
+  function ensureNotesPanel() {
+    let panel = host().querySelector('#reviewNotesPanel');
+    if (panel) return panel;
+    panel = document.createElement('aside'); panel.id = 'reviewNotesPanel'; panel.className = 'review-notes-panel';
+    panel.innerHTML = `<header><div><b>评审意见</b><span id="rnCount"></span></div><button type="button" data-rn="close">✕</button></header><div class="rn-filters"><button data-filter="pending">待处理</button><button data-filter="resolved">已解决</button><button data-filter="all">全部</button></div><div class="rn-list"></div><footer><button type="button" data-rn="copy">复制评审清单</button></footer>`;
+    panel.onclick = (e) => {
+      const f = e.target.closest('[data-filter]'); if (f) { noteFilter = f.dataset.filter; renderNotesPanel(); }
+      if (e.target.closest('[data-rn="close"]')) panel.classList.remove('open');
+      if (e.target.closest('[data-rn="copy"]')) {
+        const doc = MDW.getDoc(); navigator.clipboard.writeText(notes.exportMarkdown(doc.key, doc.name + ' · 评审意见')).then(() => MDW.toast?.('评审清单已复制'));
+      }
+    };
+    host().appendChild(panel); return panel;
+  }
+  function renderNotesPanel() {
+    const panel = ensureNotesPanel(), doc = MDW.getDoc(), blocks = MDW.getBlocks?.() || [];
+    const arr = doc?.key ? notes.list(doc.key, noteFilter) : [];
+    panel.querySelector('#rnCount').textContent = arr.length ? ` · ${arr.length}` : '';
+    panel.querySelectorAll('[data-filter]').forEach((b) => b.classList.toggle('on', b.dataset.filter === noteFilter));
+    const list = panel.querySelector('.rn-list'); list.innerHTML = '';
+    if (!arr.length) list.innerHTML = '<p class="rn-empty">这里还没有意见</p>';
+    else arr.forEach((n) => list.appendChild(noteCard(n, blocks)));
+    paintNoteMarks();
+  }
+  function openNotesPanel() { const panel = ensureNotesPanel(); renderNotesPanel(); panel.classList.add('open'); }
+  notes.onChange(() => { renderNotesPanel(); injectReviewEntry(); });
+  window.addEventListener('docsmith:rendered', paintNoteMarks);
+
   /* --- 文档切换 / 内容变化时重算 ---
      当前文档 id 缓存在 curId 里，切换时更新一次，滚动回调就不必每帧调
      MDW.getDoc()（那个调用会 filter 一遍打开的文档、再造一个带正文的对象，
@@ -112,6 +208,7 @@ whenReady(() => {
     reviewer.onDocChanged();
     restoreScroll();
     markCurrentTables();
+    renderNotesPanel();
   });
   window.addEventListener('docsmith:text-changed', () => {
     reviewer.onTextChanged();
@@ -232,8 +329,8 @@ function commands(MDW, tb, reviewer) {
     // ---- 改动
     { id: 'changes', group: '改动', icon: '～', title: '查看未保存的改动',
       when: hasDoc, run: click('#chgBtn') },
-    { id: 'review', group: '改动', icon: '⇄', title: '逐处审阅', key: 'Alt+R',
-      desc: '表格按单元格对比，可逐处接受或还原', when: hasDoc,
+    { id: 'review', group: '改动', icon: '⇄', title: '上次确认后的变化', key: 'Alt+R',
+      desc: '表格按单元格对比，可逐处保留或撤回', when: hasDoc,
       /* 和 whenReady 里的 host() 同一个意思，但这个函数在闭包外面，
          只能自己问一次 MDW.root() —— 挂错宿主的话审阅面板会留在外壳上，
          切到别的能力还浮着。 */

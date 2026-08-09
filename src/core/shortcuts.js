@@ -4,11 +4,10 @@
  * 这份清单是「说明」，不是「实现」—— 真正的绑定分散在各处：
  *   · Markdown 工作台主键位   views/markdown/workspace.js（keyGate 那两块）
  *   · 命令面板 ⌘K             views/markdown/palette.js
- *   · 逐处审阅 Alt+R / Alt+↑↓  views/markdown/revision.js、workspace.js
+ *   · 确认后变化 Alt+R / Alt+↑↓  views/markdown/revision.js、workspace.js
  *   · 文件库                   views/files/library.js、files/wire-up.js
  *   · 外壳（切能力、设置）      app/main.js、core/settings-panel.js
  *   · 图表画布内               workspace.js 的 createPanZoom
- *   · 打开插件 Alt+D           manifest.json 的 commands
  *
  * ⚠ 改了任何一处绑定，记得回来改这里。两边不一致比没有说明更糟 ——
  *   用户会按着写出来的键去试，发现没反应就不再相信这个面板。
@@ -40,11 +39,9 @@ export function fmtKey(spec) {
    多半是因为当前不在那个界面里 —— 所以每一条都标出来。 */
 export const SHORTCUT_GROUPS = [
   {
-    title: '随时可用',
-    note: '不管你正在看哪个界面',
+    title: '应用内随时可用',
+    note: '打开 Docsmith 后，不管你正在看哪个界面',
     items: [
-      { keys: 'Alt+D', name: '打开 / 关闭 Docsmith',
-        desc: '在任何网页上按都行。这个键可以在 Chrome 的「扩展程序 → 键盘快捷键」里改' },
       { keys: 'Mod+,', name: '打开设置' },
       { keys: '1', name: '切换到第 1 个能力',
         desc: '2、3…以此类推，按侧栏里的顺序' },
@@ -71,9 +68,9 @@ export const SHORTCUT_GROUPS = [
   },
   {
     title: '看改动',
-    note: '和「打开这篇时」相比改了什么',
+    note: '看上次确认之后发生了什么变化',
     items: [
-      { keys: 'Alt+R', name: '逐处审阅', desc: '表格能按单元格对比，每一处都可以单独接受或还原' },
+      { keys: 'Alt+R', name: '上次确认后的变化', desc: '表格能按单元格对比，每一处都可以单独保留或撤回' },
       { keys: 'Alt+↓', name: '跳到下一处改动', desc: 'Alt+↑ 是上一处' },
       { keys: 'Mod+Shift+D', name: '打开未保存改动的清单' },
     ],

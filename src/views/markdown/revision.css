@@ -429,3 +429,12 @@
   opacity: 1;
   transform: translateX(-50%);
 }
+
+/* -------------------------------------------------------- 评审意见 */
+.doc .blk{position:relative}.review-note-mark,.review-cell-mark{border:0;background:var(--surface-2);color:var(--accent);font:600 11px/1 var(--doc-head);border-radius:12px;padding:5px 7px;box-shadow:var(--shadow-sm);cursor:pointer;z-index:6}
+.review-note-mark{position:absolute;right:-12px;top:4px}.review-cell-mark{position:absolute;right:3px;bottom:3px;padding:3px 5px;font-size:10px}.doc td:has(>.review-cell-mark),.doc th:has(>.review-cell-mark){position:relative}
+.review-notes-panel{position:absolute;top:54px;right:16px;bottom:38px;width:min(390px,calc(100% - 32px));z-index:120;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);display:none;flex-direction:column;overflow:hidden}.review-notes-panel.open{display:flex}
+.review-notes-panel>header{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid var(--border)}.review-notes-panel>header>div{display:flex;gap:4px;align-items:baseline}.review-notes-panel>header span{font-size:12px;color:var(--text-mute)}.review-notes-panel button{font:inherit}.review-notes-panel>header>button{border:0;background:transparent;color:var(--text-mute);font-size:16px}
+.rn-filters{display:flex;gap:5px;padding:9px 12px;border-bottom:1px solid var(--border)}.rn-filters button,.rn-actions button,.review-notes-panel footer button{border:1px solid var(--border);background:var(--bg);color:var(--text-dim);border-radius:7px;padding:5px 9px;font-size:12px}.rn-filters button.on,.rn-actions button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent,#fff)}
+.rn-list{flex:1;overflow:auto;padding:10px}.review-note-card{border:1px solid var(--border);border-radius:9px;padding:10px;background:var(--bg);margin-bottom:8px}.review-note-card.unresolved{border-color:#e08e0b}.review-note-card p{margin:7px 0 10px;font-size:13px;line-height:1.55;color:var(--text)}.rn-quote{font-size:11.5px;color:var(--text-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rn-actions{display:flex;gap:5px;flex-wrap:wrap}.rn-actions button.danger:hover{color:#ea2261;border-color:#ea2261}.rn-empty{text-align:center;color:var(--text-mute);padding:30px 10px}.review-notes-panel footer{padding:10px 12px;border-top:1px solid var(--border)}
+@media(max-width:700px){.review-notes-panel{inset:48px 8px 30px;width:auto}.review-note-mark{right:2px}}

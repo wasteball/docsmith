@@ -167,16 +167,9 @@ export function rebuildToolbar(MDW) {
   stash(printBtn, attic);
   stash(srcBtn, attic);
   stash(editBtn, attic);
-  /* 审阅**不再**被收进暗处。上一版把它折进「改动」面板底部的一行小字里，
-     理由是"两个入口讲同一件事"。但那两个不是同一件事：
-       ·「改动」= 还没保存的部分，关掉浏览器就没了
-       ·「审阅」= 和你打开这篇时的样子逐处对比，表格按单元格上色，跨会话保留
-     后者是这个工具最花力气做的东西，藏起来等于白做。给它一个常驻按钮。 */
-  if (reviewBtn) {
-    reviewBtn.hidden = false;
-    reviewBtn.textContent = '审阅';
-    reviewBtn.title = '逐处对比这篇文档的改动，表格按单元格上色（Alt + R）';
-  }
+  /* 两种对比仍然都在，但用户不该先理解它们的技术差别再挑按钮。
+     工具栏只留「改动」，上次确认后的变化在同一个面板里按需展开。 */
+  if (reviewBtn) reviewBtn.hidden = true;
 
   const openGroup = $('.open-group');
   const chgWrap = $('.chg-wrap');
@@ -210,7 +203,8 @@ export function rebuildToolbar(MDW) {
   /* ============================================ 三、重新排布 */
 
   const gEdit = group('tb-g-edit', [seg, findBtn, undoBtn, redoBtn]);
-  const gDoc = group('tb-g-doc', [chgWrap, reviewBtn, saveBtn]);
+  const gDoc = group('tb-g-doc', [chgWrap, saveBtn]);
+  stash(reviewBtn, attic);
   const gOut = group('tb-g-out', [copyBtn, shareBtn, exportSplit]);
 
   function group(cls, nodes) {

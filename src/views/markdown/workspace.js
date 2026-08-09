@@ -383,6 +383,7 @@
     enhance(abbrDefs, src);
     safe('changes', paintChanges);          // 重排之后，改动条要跟着回到该在的块上
     safe('find', function () { refreshFind(false); });
+    try { window.dispatchEvent(new CustomEvent('docsmith:rendered')); } catch (e) {}
   }
   function renderBlockHtml(b, linkDefs, fnOrder, fnDefs) {
     var s = emojify(b.raw);
@@ -3422,6 +3423,8 @@
   function blockMenu(i, anchor) {
     var b = docBlocks[i]; if (!b) return;
     var items = [
+      { k: '添加评审意见', ico: '💬', act: function () { try { window.dispatchEvent(new CustomEvent('docsmith:add-review-note', { detail: { kind: 'block', block: i } })); } catch (e) {} } },
+      { sep: 1 },
       { k: '上移', ico: '↑', act: function () { moveBlock(i, -1); } },
       { k: '下移', ico: '↓', act: function () { moveBlock(i, 1); } },
       { k: '复制一份', ico: '⧉', act: function () { duplicateBlock(i); } }
@@ -3437,6 +3440,8 @@
   }
   function rowMenu(i, r, c, anchor) {
     showMenu([
+      { k: '给这个单元格提意见', ico: '💬', act: function () { try { window.dispatchEvent(new CustomEvent('docsmith:add-review-note', { detail: { kind: 'cell', block: i, row: r, col: c } })); } catch (e) {} } },
+      { sep: 1 },
       { k: '在上方插入一行', ico: '↑', act: function () { tblOp(i, 'rowAbove', r, c); } },
       { k: '在下方插入一行', ico: '↓', act: function () { tblOp(i, 'rowBelow', r, c); } },
       { sep: 1 },
@@ -3446,6 +3451,8 @@
   function colMenu(i, r, c, anchor) {
     var t = tableAt(i), a = t ? (t.align[c] || '') : '';
     showMenu([
+      { k: '给这个单元格提意见', ico: '💬', act: function () { try { window.dispatchEvent(new CustomEvent('docsmith:add-review-note', { detail: { kind: 'cell', block: i, row: r, col: c } })); } catch (e) {} } },
+      { sep: 1 },
       { k: '在左侧插入一列', ico: '←', act: function () { tblOp(i, 'colLeft', r, c); } },
       { k: '在右侧插入一列', ico: '→', act: function () { tblOp(i, 'colRight', r, c); } },
       { sep: 1 }, { head: '这一列的对齐' },
@@ -4039,11 +4046,21 @@
     return (h1 >>> 0).toString(36) + '-' + (h2 >>> 0).toString(36) + '-' + str.length.toString(36);
   }
   function seenRead() { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '{}') || {}; } catch (e) { return {}; } }
+  function stableDocKey(d) {
+    if (!d) return '';
+    if (d.source === 'url') return 'url|' + normalizeUrl(d.url || d.relPath || '');
+    if (d.source === 'scratch' && !d.handle) return 'session|' + d.id;
+    var folder = d.folderRoot && d.folderRoot.name ? d.folderRoot.name + '/' : '';
+    var path = folder + (d.relPath || d.name || '');
+    /* 浏览器不会暴露独立文件的绝对路径。文件夹场景可用「目录名 + 相对路径」；
+       独立文件只能退到文件名。不能掺内容指纹 —— 一保存内容就变，意见会像丢了。
+       极少数同名独立文件会共用评审数据，这是浏览器权限模型下可解释的退化。 */
+    return (folder ? 'folder|' : 'file|') + path.toLowerCase();
+  }
   function seenKey(d) {
     if (!d) return '';
-    if (d.source === 'url') return 'u|' + (d.url || d.relPath || '');
-    if (d.source === 'scratch' && !d.handle) return '';    // 还没落到任何文件上，没什么可记的
-    return 'f|' + (d.relPath || d.name || '');
+    if (d.source === 'scratch' && !d.handle) return '';
+    return stableDocKey(d);
   }
   function seenGet(d) { var k = seenKey(d); if (!k) return null; return seenRead()[k] || null; }
   function seenPut(d, text) {
@@ -5199,9 +5216,14 @@
        必须和这里用同一个根 —— 各自去找 document.body 的话，合并进外壳后
        一个写容器、一个写 body，工具栏的分段控件就再也跟不上真实状态。 */
     root: function () { return ROOT; },
+    getBlocks: function () { return docBlocks.map(function (b) { return { type: b.type, raw: b.raw, start: b.start, end: b.end }; }); },
+    getBlockElement: function (i) { return blkEl(i); },
+    getTableData: function (i) { return tableAt(i); },
+    flashBlock: function (i) { var el = blkEl(i); if (el) { flashBlock(el); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } },
     getDoc: function () {
       var d = curDoc();
-      return d ? { id: d.id, name: d.name, text: d.text == null ? '' : d.text, dirty: !!d.dirty } : null;
+      return d ? { id: d.id, key: stableDocKey(d), name: d.name, relPath: d.relPath || d.name,
+        source: d.source, text: d.text == null ? '' : d.text, dirty: !!d.dirty } : null;
     },
     setText: function (t) { histPush(t); applyText(t); },
     getScroller: function () { return previewPane; },

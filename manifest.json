@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Docsmith · 文匠",
   "short_name": "Docsmith",
-  "version": "1.10.0",
-  "description": "读 Markdown、导出 Word/PDF/网页、把文字一键转成小红书/抖音图文卡片、生成分享链接。文件存进你自己的云，全部能力在浏览器侧边一个面板里。",
+  "version": "1.11.0",
+  "description": "以 Markdown 舒适阅读、直接编辑与改动审阅为核心，并提供图文卡片、文件管理、格式转换和分享的一站式文档工具。",
   "icons": {
     "16": "src/icons/icon-16.png",
     "32": "src/icons/icon-32.png",
@@ -38,15 +38,6 @@
     "http://*/*",
     "https://*/*"
   ],
-  "commands": {
-    "_execute_action": {
-      "suggested_key": {
-        "default": "Alt+D",
-        "mac": "Alt+D"
-      },
-      "description": "打开 Docsmith"
-    }
-  },
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; frame-src *; child-src *"
   },

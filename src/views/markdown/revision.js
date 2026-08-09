@@ -6,7 +6,7 @@
  * 设计上参考了飞书云文档的审阅体验，三个要点：
  *
  *   1. 改动是"一处一处"的，不是一片红绿。
- *      每处改动是一张卡片，能单独接受或还原。
+ *      每处改动是一张卡片，能单独保留或撤回。
  *
  *   2. 表格改动要能看懂。
  *      整张表画出来，只有变了的那一格上色，旧值划掉、新值跟在后面。
@@ -15,15 +15,15 @@
  *   3. 随时能跳过去看原文。
  *      点卡片就滚到正文对应位置，正文左边有一道颜色条标出改动范围。
  *
- * "基准"是指对比的起点，默认是打开这篇文档时的样子。点"标记为已审阅"
- * 就把当前内容设成新基准，之后的改动从这里重新算。基准存在本机，
- * 关掉浏览器再打开还在。
+ * “确认点”是对比起点：第一次打开面板时记下当前内容；之后也能把当前版本
+ * 重新记为已确认。确认点存在本机，关闭并重新打开文档后仍可继续对比。
  * ===================================================================== */
 import { diffDocument, countChanges, revertHunk, acceptHunk } from './diff-engine.js';
 import * as prefs from '../../core/prefs.js';
 import { read, write } from '../../core/store.js';
+import { KEYS } from '../../core/config.js';
 
-const BASELINE_KEY = 'docsmith:baselines';
+const BASELINE_KEY = KEYS.baselines;
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* ==================================================== 基准存取 */
@@ -76,11 +76,11 @@ export function createReviewer(host) {
   function compute() {
     const doc = host.getDoc();
     if (!doc) { hunks = []; return; }
-    let base = getBaseline(doc.id);
+    let base = getBaseline((doc.key || doc.id));
     if (base == null) {
       // 第一次看这篇：把当前内容记为基准，此刻"零改动"
       base = doc.text ?? '';
-      if (prefs.get('review.autoBaseline')) setBaseline(doc.id, base, doc.name);
+      if (prefs.get('review.autoBaseline')) setBaseline((doc.key || doc.id), base, doc.name);
     }
     hunks = diffDocument(base, doc.text ?? '');
   }
@@ -106,8 +106,8 @@ export function createReviewer(host) {
     if (!hunks.length) {
       body.innerHTML = `
         <div class="rv-empty">
-          <p>和基准版本一模一样。</p>
-          <p class="rv-empty-sub">改动会在这里逐条列出来，可以单独接受或还原。</p>
+          <p>和上次确认的版本一样。</p>
+          <p class="rv-empty-sub">之后发生的变化会逐条列出来，可以保留或撤回。</p>
         </div>`;
       return;
     }
@@ -138,7 +138,7 @@ export function createReviewer(host) {
         </header>
         <div class="rv-card-body">${inner}</div>
         <footer class="rv-card-foot">
-          <button class="rv-btn rv-accept" data-act="accept">接受</button>
+          <button class="rv-btn rv-accept" data-act="accept">保留这处修改</button>
           <button class="rv-btn rv-revert" data-act="revert">还原</button>
         </footer>
       </article>`;
@@ -226,10 +226,10 @@ export function createReviewer(host) {
     const doc = host.getDoc();
     const h = hunks[i];
     if (!doc || !h) return;
-    const base = getBaseline(doc.id) ?? '';
-    setBaseline(doc.id, acceptHunk(base, h), doc.name);
+    const base = getBaseline((doc.key || doc.id)) ?? '';
+    setBaseline((doc.key || doc.id), acceptHunk(base, h), doc.name);
     refresh();
-    host.toast?.('已接受这处改动');
+    host.toast?.('已保留这处修改 · 尚未保存到文件');
   }
 
   function revert(i) {
@@ -244,22 +244,22 @@ export function createReviewer(host) {
   function acceptAll() {
     const doc = host.getDoc();
     if (!doc || !hunks.length) return;
-    setBaseline(doc.id, doc.text ?? '', doc.name);
+    setBaseline((doc.key || doc.id), doc.text ?? '', doc.name);
     activeIdx = -1;
     refresh();
-    host.toast?.('全部改动已标记为已审阅');
+    host.toast?.('当前版本已记为确认点 · 尚未保存到文件');
   }
 
   function revertAll() {
     const doc = host.getDoc();
     if (!doc) return;
-    const base = getBaseline(doc.id);
+    const base = getBaseline((doc.key || doc.id));
     if (base == null) return;
-    if (!confirm('把这篇文档还原成基准版本？\n你之后做的所有改动都会消失。')) return;
+    if (!confirm('还原到你上次确认的版本？\n确认点之后的修改都会被撤回。')) return;
     host.setText(base);
     activeIdx = -1;
     refresh();
-    host.toast?.('已还原到基准版本');
+    host.toast?.('已还原到上次确认的版本');
   }
 
   /* --------------------------------------------- 正文左侧的改动条 */
@@ -299,7 +299,7 @@ export function createReviewer(host) {
     panel.innerHTML = `
       <header class="rv-head">
         <div class="rv-title">
-          <b>改动审阅</b>
+          <b>上次确认后的变化</b>
           <span class="rv-count">没有改动</span>
         </div>
         <div class="rv-nav" hidden>
@@ -310,12 +310,12 @@ export function createReviewer(host) {
       </header>
       <div class="rv-body"></div>
       <footer class="rv-foot rv-bulk" hidden>
-        <button class="rv-btn rv-primary" data-bulk="accept">全部标记为已审阅</button>
-        <button class="rv-btn" data-bulk="revert">全部还原</button>
+        <button class="rv-btn rv-primary" data-bulk="accept">把当前版本记为已确认</button>
+        <button class="rv-btn" data-bulk="revert">全部撤回</button>
       </footer>
       <p class="rv-hint">
-        「基准」是对比的起点，默认是你打开这篇文档时的样子。
-        标记为已审阅之后，往后的改动从当前内容重新算起。
+        这里显示从你上次确认后发生的变化。“保留”只更新确认点，
+        不会写入磁盘；要真正保存，请点工具栏的“保存”。
       </p>`;
     container.appendChild(panel);
 
