@@ -62,15 +62,25 @@ export function esc(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-/** mermaid 允许在标签里用 <br>，还常见 &nbsp; 之类实体 */
+/** Mermaid 标签允许少量 HTML。只保留我们会安全渲染的加粗语义。 */
 export function cleanLabel(s) {
   return String(s ?? '')
     .trim()
     .replace(/^["'`]|["'`]$/g, '')
     .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<(b|strong)>/gi, '**')
+    .replace(/<\/(b|strong)>/gi, '**')
+    .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&quot;/gi, '"')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
     .replace(/&amp;/gi, '&');
+}
+
+/** 去掉内部加粗标记，供宽度估算和纯文本场景使用。 */
+export function plainLabel(s) {
+  return String(s ?? '').replace(/\*\*/g, '');
 }
 
 /* ============================================== SVG 片段 */
@@ -97,10 +107,18 @@ export function text(x, y, str, cls = 'dg-text', anchor = 'middle', extra = '') 
   return `<text x="${round(x)}" y="${round(y)}" class="${cls}" text-anchor="${anchor}" ${extra}>${esc(str)}</text>`;
 }
 
-/** 多行文字，围绕中心垂直居中 */
-export function textBlock(cx, cy, lines, cls = 'dg-text', lh = 18) {
+/** 一行标签，支持 cleanLabel 生成的 **加粗** 片段。 */
+function richLine(x, y, value, cls, anchor, extra = '') {
+  const parts = String(value ?? '').split('**');
+  if (parts.length === 1) return text(x, y, value, cls, anchor, extra);
+  const spans = parts.map((part, i) => `<tspan${i % 2 ? ' class="dg-text-strong"' : ''}>${esc(part)}</tspan>`).join('');
+  return `<text x="${round(x)}" y="${round(y)}" class="${cls}" text-anchor="${anchor}" ${extra}>${spans}</text>`;
+}
+
+/** 多行文字，围绕中心垂直居中；行内可用 <b>/<strong>（已转换为 **）。 */
+export function textBlock(cx, cy, lines, cls = 'dg-text', lh = 18, extra = '') {
   const top = cy - ((lines.length - 1) * lh) / 2;
-  return lines.map((l, i) => text(cx, top + i * lh + 4.5, l, cls)).join('');
+  return lines.map((l, i) => richLine(cx, top + i * lh + 4.5, l, cls, 'middle', extra)).join('');
 }
 
 export function rect(x, y, w, h, r = 6, cls = 'dg-shape', extra = '') {
@@ -144,8 +162,8 @@ export function curveD(x1, y1, x2, y2, horizontal) {
   };
 }
 
-export function polygon(points, cls = 'dg-shape') {
-  return `<polygon points="${points.map((p) => `${round(p[0])},${round(p[1])}`).join(' ')}" class="${cls}"/>`;
+export function polygon(points, cls = 'dg-shape', extra = '') {
+  return `<polygon points="${points.map((p) => `${round(p[0])},${round(p[1])}`).join(' ')}" class="${cls}" ${extra}/>`;
 }
 
 export function round(n) {
@@ -156,11 +174,18 @@ export function uid(prefix = 'dg') {
   return `${prefix}${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** 一段带底色的标注文字，用在连线中间 */
+/** 多行边标签的实际尺寸。ELK 也用它预留空间，绘制时必须保持一致。 */
+export function chipSize(label) {
+  const lines = String(label ?? '').split('\n');
+  const w = Math.max(...lines.map((line) => textWidth(plainLabel(line), 11.5))) + 18;
+  return { lines, w: Math.max(30, w), h: Math.max(22, lines.length * 16 + 8) };
+}
+
+/** 一段带底色的标注文字，用在连线中间；支持换行和加粗。 */
 export function chip(cx, cy, label, cls = 'dg-chip') {
-  const w = textWidth(label, 11.5) + 12;
-  return rect(cx - w / 2, cy - 9.5, w, 19, 4, `${cls}-bg`)
-    + text(cx, cy + 4, label, `${cls}-text`);
+  const size = chipSize(label);
+  return rect(cx - size.w / 2, cy - size.h / 2, size.w, size.h, 5, `${cls}-bg`)
+    + textBlock(cx, cy, size.lines, `${cls}-text`, 16);
 }
 
 /** 系列色。索引取模，保证同一张图里颜色不重复得太快。 */

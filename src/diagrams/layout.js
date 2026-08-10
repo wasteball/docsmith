@@ -21,36 +21,80 @@ export function layered(nodes, order, edges, opts = {}) {
   const GAP_Y = opts.gapY ?? 62;
   const MAX_CROSS = opts.maxCross ?? 980;
 
-  /* ---------------------------------------------------- 1. 分层 */
+  /* ---------------------------------------------------- 1. 分层
+     先把强连通分量收缩成 DAG。旧实现遇到回边时会修改一个已经处理完的
+     节点 rank，却不会把新 rank 继续传给后继，状态机因此挤成一团。 */
   const rank = {};
-  const indeg = {};
-  order.forEach((id) => { indeg[id] = 0; });
-  edges.forEach((e) => { if (indeg[e.to] != null && e.from !== e.to) indeg[e.to] += 1; });
+  const orderIndex = new Map(order.map((id, index) => [id, index]));
+  const graphEdges = edges.filter((e) => e.from !== e.to
+    && orderIndex.has(e.from) && orderIndex.has(e.to));
+  const out = new Map(order.map((id) => [id, []]));
+  graphEdges.forEach((e) => out.get(e.from).push(e.to));
 
-  let queue = order.filter((id) => !indeg[id]);
-  if (!queue.length) queue = [order[0]];
-  queue.forEach((id) => { rank[id] = 0; });
+  let nextIndex = 0;
+  const indices = new Map();
+  const low = new Map();
+  const stack = [];
+  const onStack = new Set();
+  const components = [];
+  const visit = (id) => {
+    indices.set(id, nextIndex);
+    low.set(id, nextIndex);
+    nextIndex += 1;
+    stack.push(id);
+    onStack.add(id);
+    for (const to of out.get(id) || []) {
+      if (!indices.has(to)) {
+        visit(to);
+        low.set(id, Math.min(low.get(id), low.get(to)));
+      } else if (onStack.has(to)) {
+        low.set(id, Math.min(low.get(id), indices.get(to)));
+      }
+    }
+    if (low.get(id) !== indices.get(id)) return;
+    const component = [];
+    let item;
+    do {
+      item = stack.pop();
+      onStack.delete(item);
+      component.push(item);
+    } while (item !== id);
+    component.sort((a, b) => orderIndex.get(a) - orderIndex.get(b));
+    components.push(component);
+  };
+  order.forEach((id) => { if (!indices.has(id)) visit(id); });
 
-  const out = new Map();
-  edges.forEach((e) => {
-    if (!out.has(e.from)) out.set(e.from, []);
-    out.get(e.from).push(e.to);
+  const componentOf = new Map();
+  components.forEach((component, index) => component.forEach((id) => componentOf.set(id, index)));
+  const componentOut = new Map(components.map((_, index) => [index, new Set()]));
+  const componentIndeg = components.map(() => 0);
+  graphEdges.forEach((edge) => {
+    const from = componentOf.get(edge.from);
+    const to = componentOf.get(edge.to);
+    if (from === to || componentOut.get(from).has(to)) return;
+    componentOut.get(from).add(to);
+    componentIndeg[to] += 1;
   });
 
-  const seen = new Set();
-  let guard = 0;
-  while (queue.length && guard++ < 20000) {
-    const id = queue.shift();
-    if (seen.has(id)) continue;
-    seen.add(id);
-    for (const to of out.get(id) || []) {
-      if (to === id) continue;
-      const next = (rank[id] || 0) + 1;
-      if (rank[to] == null || rank[to] < next) rank[to] = next;
-      queue.push(to);
+  const componentOrder = (index) => Math.min(...components[index].map((id) => orderIndex.get(id)));
+  const queue = components.map((_, index) => index)
+    .filter((index) => componentIndeg[index] === 0)
+    .sort((a, b) => componentOrder(a) - componentOrder(b));
+  const componentRank = components.map(() => 0);
+  while (queue.length) {
+    const current = queue.shift();
+    for (const to of componentOut.get(current)) {
+      componentRank[to] = Math.max(componentRank[to], componentRank[current] + components[current].length);
+      componentIndeg[to] -= 1;
+      if (componentIndeg[to] === 0) {
+        queue.push(to);
+        queue.sort((a, b) => componentOrder(a) - componentOrder(b));
+      }
     }
   }
-  order.forEach((id) => { if (rank[id] == null) rank[id] = 0; });
+  components.forEach((component, componentIndex) => {
+    component.forEach((id, localIndex) => { rank[id] = componentRank[componentIndex] + localIndex; });
+  });
 
   /* ------------------------------------------- 2. 层内排序（重心法） */
   const byRank = new Map();

@@ -81,18 +81,19 @@ export function inlineStyle(scheme = currentScheme()) {
 .dg{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif}
 .dg-shape{fill:${c.surface};stroke:${c.accent};stroke-width:1.4}
 .dg-text{fill:${c.text};font-size:13px}
+.dg-text-strong{font-weight:700}
 .dg-title{fill:${c.text};font-size:15px;font-weight:500}
 .dg-axis{fill:${c.textMute};font-size:11px}
 .dg-legend{fill:${c.textDim};font-size:12px}
-.dg-edge{stroke:${c.textMute};stroke-width:1.4;fill:none}
+.dg-edge{stroke:${c.textMute};stroke-width:1.35;fill:none;opacity:.72}
 .dg-edge.dashed{stroke-dasharray:5 4}
-.dg-edge.thick{stroke-width:2.6}
-.dg-arrow{fill:${c.textMute}}
+.dg-edge.thick{stroke-width:2.4;opacity:.82}
+.dg-arrow{fill:${c.textMute};opacity:.78}
 .dg-grid{stroke:${c.border};stroke-width:1}
 .dg-chip-bg{fill:${c.bg};stroke:${c.border};stroke-width:1}
 .dg-chip-text{fill:${c.textDim};font-size:11.5px}
-.dg-group{fill:${mix(c.accent, 6, c.bg)};stroke:${c.borderStrong};stroke-width:1;stroke-dasharray:4 3}
-.dg-group-title{fill:${c.textMute};font-size:11.5px;font-weight:500}
+.dg-group{fill:${mix(c.accent, 5, c.bg)};stroke:${c.borderStrong};stroke-width:1}
+.dg-group-title{fill:${c.textDim};font-size:12px;font-weight:600}
 .dg-terminal{fill:${c.text}}
 .dg-bar{opacity:.85}
 .dg-bar.done{opacity:.42}

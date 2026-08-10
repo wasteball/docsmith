@@ -40,7 +40,7 @@ export function supported() {
 
 /**
  * 画一张图。
- * @returns {string} SVG
+ * @returns {string|Promise<string>} SVG；复杂流程图由 ELK 异步布局
  * @throws {UnsupportedDiagram} 图种不认识
  */
 export function renderDiagram(src) {
@@ -50,6 +50,10 @@ export function renderDiagram(src) {
     throw new UnsupportedDiagram(kind);
   }
   return r.run(src);
+}
+
+function asPromise(value) {
+  return value && typeof value.then === 'function' ? value : Promise.resolve(value);
 }
 
 /* ============================================== mermaid 兼容外观 */
@@ -63,14 +67,12 @@ export function install(win = window) {
     initialize() {},
     /* 必须返回 Promise —— 见文件头的说明 */
     render(id, src) {
-      return new Promise((resolve, reject) => {
-        try { resolve({ svg: renderDiagram(src) }); } catch (e) { reject(e); }
-      });
+      try { return asPromise(renderDiagram(src)).then((svg) => ({ svg })); }
+      catch (e) { return Promise.reject(e); }
     },
     parse(src) {
-      return new Promise((resolve, reject) => {
-        try { renderDiagram(src); resolve(true); } catch (e) { reject(e); }
-      });
+      try { return asPromise(renderDiagram(src)).then(() => true); }
+      catch (e) { return Promise.reject(e); }
     },
     detect,
     supported,

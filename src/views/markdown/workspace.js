@@ -151,6 +151,23 @@
   function toast(msg, kind) { toastEl.textContent = msg; toastEl.className = 'toast show' + (kind ? ' ' + kind : ''); clearTimeout(toast._t); toast._t = setTimeout(function () { toastEl.className = 'toast'; }, 3600); }
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
   function curDoc() { return docs.filter(function (x) { return x.id === currentId; })[0]; }
+  function displayDocTitle(d) {
+    var name = d && (d.name || d.relPath);
+    return name ? name.replace(/\.(md|markdown|mkd|mdx)$/i, '') : '';
+  }
+  function updateWorkspaceTitle() {
+    var el = $('#workspaceTitle'); if (!el) return;
+    var title = displayDocTitle(curDoc());
+    if (title) {
+      el.textContent = title;
+      el.title = title;
+      el.setAttribute('aria-label', '当前文档：' + title);
+    } else {
+      el.innerHTML = 'Markdown<span class="dot">·</span>工作台';
+      el.title = 'Markdown 工作台';
+      el.setAttribute('aria-label', 'Markdown 工作台');
+    }
+  }
   function flashBtn(btn, label) { var o = btn.textContent; btn.textContent = label || '已复制'; btn.classList.add('ok'); setTimeout(function () { btn.textContent = o; btn.classList.remove('ok'); }, 1400); }
 
   /* ---------- emoji / slug / footnotes / abbr ------------------------ */
@@ -1211,6 +1228,7 @@
     histReset('');
     updateStatus('');
     updateSaveState();
+    updateWorkspaceTitle();
     buildOutline();
   }
 
@@ -1231,6 +1249,7 @@
   function openDoc(id) {
     var d = docs.filter(function (x) { return x.id === id; })[0]; if (!d) return;
     currentId = id;
+    updateWorkspaceTitle();
     assetUrls.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} }); assetUrls = [];
     ROOT.classList.remove('empty');
     loadDocText(d).then(function (t) {
@@ -2540,7 +2559,7 @@
 
   function docText() { var d = curDoc(); return d && d.text != null ? d.text : ''; }
   function syncEditor() { if (ROOT.dataset.mode === 'source') { var d = curDoc(); editor.value = d && d.text != null ? d.text : ''; sourceEntryText = editor.value; refreshFind(false); } }
-  function makeScratch() { var d = { id: uid(), name: 'untitled.md', relPath: 'untitled.md', dir: '', text: '', source: 'scratch', handle: null, savedText: '', dirty: false }; docs.push(d); currentId = d.id; ROOT.classList.remove('empty'); renderFileList(); histReset(''); return d; }
+  function makeScratch() { var d = { id: uid(), name: 'untitled.md', relPath: 'untitled.md', dir: '', text: '', source: 'scratch', handle: null, savedText: '', dirty: false }; docs.push(d); currentId = d.id; ROOT.classList.remove('empty'); updateWorkspaceTitle(); renderFileList(); histReset(''); return d; }
 
   function histReset(t) { hist = [t == null ? '' : t]; histIdx = 0; updateHistBtns(); }
   function histPush(t) { hist = hist.slice(0, histIdx + 1); hist.push(t); if (hist.length > 200) hist.shift(); histIdx = hist.length - 1; updateHistBtns(); }
@@ -4756,7 +4775,7 @@
             if (!ok) throw new Error('no-permission');
             return writeToHandle(handle, text).then(function () {
               d.handle = handle; if (handle.name) { d.name = handle.name; d.relPath = handle.name; }
-              markSaved(d); renderFileList();
+              markSaved(d); updateWorkspaceTitle(); renderFileList();
               toast('已保存 ✓' + wrote + ' · 之后按 ⌘/Ctrl+S 可直接写回这个文件', 'ok');
             });
           });
@@ -5197,6 +5216,7 @@
     ROOT.classList.add('empty');
     ROOT.dataset.edit = 'off';
     ROOT.dataset.mode = 'read';
+    updateWorkspaceTitle();
     histReset('');
     if (store.get('sideCollapsed', '0') === '1' && !isNarrow()) ROOT.classList.add('side-collapsed');
 

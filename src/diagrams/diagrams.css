@@ -34,19 +34,21 @@
 }
 
 .dg-text { fill: var(--text, #0d253d); font-size: 13px; }
+.dg-text-strong { font-weight: 700; }
 .dg-title { fill: var(--text, #0d253d); font-size: 15px; font-weight: 500; }
 .dg-axis { fill: var(--text-mute, #64748d); font-size: 11px; }
 .dg-legend { fill: var(--text-dim, #425466); font-size: 12px; }
 
 .dg-edge {
     stroke: var(--text-mute, #64748d);
-    stroke-width: 1.4;
+    stroke-width: 1.35;
     fill: none;
+    opacity: .72;
 }
 
 .dg-edge.dashed { stroke-dasharray: 5 4; }
-.dg-edge.thick { stroke-width: 2.6; }
-.dg-arrow { fill: var(--text-mute, #64748d); }
+.dg-edge.thick { stroke-width: 2.4; opacity: .82; }
+.dg-arrow { fill: var(--text-mute, #64748d); opacity: .78; }
 .dg-grid { stroke: var(--border, #e3e8ee); stroke-width: 1; }
 
 .dg-chip-bg {
@@ -60,13 +62,12 @@
 /* ------------------------------------------------- 流程图 / 状态图 */
 
 .dg-group {
-    fill: var(--accent-soft, rgba(83, 58, 253, .06));
+    fill: var(--accent-soft, rgba(83, 58, 253, .05));
     stroke: var(--border-strong, #d3dce6);
     stroke-width: 1;
-    stroke-dasharray: 4 3;
 }
 
-.dg-group-title { fill: var(--text-mute, #64748d); font-size: 11.5px; font-weight: 500; }
+.dg-group-title { fill: var(--text-dim, #425466); font-size: 12px; font-weight: 600; }
 .dg-terminal { fill: var(--text, #0d253d); stroke: none; }
 
 /* ---------------------------------------------------------- 甘特 */

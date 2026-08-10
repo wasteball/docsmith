@@ -32,7 +32,7 @@
          复制源码、分享链接，Word 只是其中一个出口。
          而且外壳侧栏已经写了「Markdown 工作台」，这里再顶一个别的名字，
          用户会以为是两个东西。统一成同一个叫法。 -->
-    <div class="brand">Markdown<span class="dot">·</span>工作台</div>
+    <div class="brand" id="workspaceTitle" title="Markdown 工作台">Markdown<span class="dot">·</span>工作台</div>
 
     <div class="tools">
       <span class="group open-group">
@@ -223,8 +223,9 @@
 
 <!-- 第三方组件。某个文件没下下来也不会中断页面，对应功能会自动隐藏。
 
-     这里刻意**没有** mermaid.min.js：画流程图走 src/diagrams/ 自带的引擎
-     （下面 diagram-boot.js 把它装成 window.mermaid），完整版 mermaid 有 2MB+，
+     这里刻意**没有** mermaid.min.js：画图走 src/diagrams/ 自带的解析与 SVG 引擎，
+     复杂流程图的布局交给下面的 ELK（diagram-boot.js 再装成 window.mermaid）。
+     完整版 mermaid 体积更大，
      没必要随包附带。也刻意没有 html2pdf.bundle.min.js：导出 PDF 现在走
      「在真标签页里打开导出的网页，再交给浏览器打印」，见 workspace.js 的 exportPdf()。
      留着指向不存在文件的 <script> 只会每次打开都刷两条 404，
@@ -239,12 +240,14 @@
 <script src="../markdown/markdown-fallback.js"></script>
 
 <!-- 桥接层：把云存储、总线、组件检测接上 -->
+<!-- ELK 负责复杂流程图的分层、交叉最小化和正交布线；图表引擎仍保留轻量回退。 -->
+<script src="../../vendor/elk.bundled.js"></script>
 <!-- 图表引擎：必须排在 workspace.js 之前安装好 window.mermaid -->
 <script type="module" src="./diagram-boot.js"></script>
 <script type="module" src="../shared/cloud-bridge.js"></script>
 <script type="module" src="../shared/view-boot.js"></script>
 
-<!-- 主逻辑。defer 保证它排在上面两个 module 之后执行 -->
+<!-- 主逻辑通过 defer 等待 HTML 解析；图表模块会在首次渲染前完成安装。 -->
 <!-- 「我现在是不是前台那个能力」——window 级快捷键靠它决定要不要响应。
      必须排在 workspace.js / wire-up.js 之前：它们绑监听时就要用到。 -->
 <script defer src="../shared/active.js"></script>

@@ -30,7 +30,7 @@ html,body{height:100%}
 [data-ds-root].dropping::after{content:'松手即可打开 — 支持 .md 文件或整个文件夹，全部本地读取，不会上传'; position:fixed; inset:14px; z-index:100; border:2px dashed var(--accent); border-radius:16px; display:flex; align-items:center; justify-content:center; font-weight:600; color:var(--accent); background:color-mix(in srgb,var(--accent) 8%, var(--bg)); pointer-events:none; text-align:center; padding:20px;}
 
 .topbar{display:flex; align-items:center; gap:10px; flex-wrap:wrap; position:relative; padding:9px 14px; background:var(--chrome); border-bottom:1px solid var(--border); z-index:30;}
-.brand{display:flex; align-items:baseline; gap:.4ch; font-weight:700; letter-spacing:-.02em; font-size:15.5px; white-space:nowrap; margin-right:2px;}
+.brand{display:flex; align-items:baseline; gap:.4ch; max-width:min(32vw,360px); overflow:hidden; text-overflow:ellipsis; font-weight:700; letter-spacing:-.02em; font-size:15.5px; white-space:nowrap; margin-right:2px;}
 .brand .dot{color:var(--accent);}
 .icon-btn{display:inline-flex; align-items:center; justify-content:center; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; width:34px; height:34px; cursor:pointer; color:var(--text); font-size:14px; line-height:1;}
 .icon-btn:hover{border-color:var(--accent); color:var(--accent);}
