@@ -1,0 +1,2 @@
+# 第三方压缩包按上游原样保存；不对单行压缩代码做空白检查或文本 diff。
+src/vendor/infographic.min.js -diff -whitespace

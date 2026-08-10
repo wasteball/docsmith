@@ -145,7 +145,7 @@
 .doc table{border-collapse:collapse; width:100%; font-size:.92em; font-family:var(--doc-head);}
 .doc th,.doc td{padding:.6em .9em; border-bottom:1px solid var(--doc-border); text-align:left;}
 .doc th{background:var(--doc-th); font-weight:600;} .doc tr:last-child td{border-bottom:none;}
-.doc .code-block,.doc .mermaid-block{margin:1.3em 0; border:1px solid var(--doc-code-border); border-radius:10px; overflow:hidden; background:var(--doc-code-bg);}
+.doc .code-block,.doc .diagram-block{margin:1.3em 0; border:1px solid var(--doc-code-border); border-radius:10px; overflow:hidden; background:var(--doc-code-bg);}
 .doc .cb-head{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 12px; background:var(--doc-code-head); border-bottom:1px solid var(--doc-code-border);}
 .doc .cb-lang{font-family:var(--doc-mono); font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--doc-muted);}
 .doc .cb-actions{display:flex; gap:8px;}
@@ -157,8 +157,8 @@
 .doc .copy-btn.ok{color:var(--c-tip); border-color:var(--c-tip);}
 .doc pre{margin:0; padding:14px 16px; overflow-x:auto;}
 .doc pre code{font-family:var(--doc-mono); font-size:.78em; line-height:1.6; background:none; padding:0; color:inherit;}
-/* mermaid + pan/zoom (fixed) */
-.doc .mermaid-render{position:relative; padding:0; min-height:60px;}
+/* diagram + pan/zoom */
+.doc .diagram-render{position:relative; padding:0; min-height:60px;}
 .doc .mm-viewport{position:relative; overflow:hidden; cursor:grab; background:transparent; touch-action:pan-y; outline:none;}
 .doc .mm-viewport:focus-visible{box-shadow:inset 0 0 0 2px var(--doc-accent); border-radius:8px;}
 .doc .mm-viewport.grabbing{cursor:grabbing; touch-action:none;}
@@ -170,7 +170,7 @@
    这条管「导出的网页/打印」这些没有 JS 参与的场合。 */
 .doc .mm-stage svg{display:block; max-width:none; margin:0;}
 .doc .mm-tools{position:absolute; top:10px; right:10px; display:flex; gap:2px; padding:4px; background:color-mix(in srgb, var(--doc-code-head) 80%, transparent); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); border:1px solid var(--doc-code-border); border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.10), 0 1px 2px rgba(0,0,0,.06); z-index:3; opacity:0; transform:translateY(-5px) scale(.97); transform-origin:top right; pointer-events:none; transition:opacity .18s ease, transform .18s ease;}
-.doc .mermaid-render:hover .mm-tools,.doc .mm-tools:focus-within{opacity:1; transform:none; pointer-events:auto;}
+.doc .diagram-render:hover .mm-tools,.doc .mm-tools:focus-within{opacity:1; transform:none; pointer-events:auto;}
 .doc .mm-tools button{display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border:none; background:transparent; color:var(--doc-muted); border-radius:7px; cursor:pointer; transition:background .14s, color .14s, transform .05s;}
 .doc .mm-tools button:hover{background:color-mix(in srgb, var(--doc-accent) 14%, transparent); color:var(--doc-accent);}
 .doc .mm-tools button:focus{outline:none;}
@@ -181,8 +181,8 @@
 @media (hover:none){.doc .mm-tools{opacity:1; transform:none; pointer-events:auto;}}
 .doc .mm-loading{padding:18px; color:var(--doc-muted); font-family:var(--doc-head); font-size:13px;}
 .doc .mm-error{padding:16px; color:var(--c-caution); font-family:var(--doc-mono); font-size:13px; text-align:left;}
-.doc .mermaid-block[data-view=diagram] .mermaid-source{display:none;}
-.doc .mermaid-block[data-view=source] .mermaid-render{display:none;}
+.doc .diagram-block[data-view=diagram] .diagram-source{display:none;}
+.doc .diagram-block[data-view=source] .diagram-render{display:none;}
 .doc .math-block{margin:1.3em 0; overflow-x:auto; text-align:center;}
 .doc .math-err{color:var(--c-caution); font-family:var(--doc-mono);}
 .doc .raw-fallback{white-space:pre-wrap; word-break:break-word; font-family:var(--doc-mono); font-size:.72em; line-height:1.6; background:var(--doc-code-bg); border:1px solid var(--doc-code-border); border-radius:10px; padding:16px;}
@@ -197,7 +197,7 @@
   .doc{--doc-bg:#fff; --doc-fg:#111; --doc-muted:#555; --doc-border:#ccc; --doc-code-bg:#f6f6f6; --doc-code-head:#eee; max-width:none; margin:0; padding:0; font-size:11.5pt;}
   .doc .mm-viewport{overflow:visible !important; height:auto !important;} .doc .mm-stage{transform:none !important;}
   .doc .cb-actions,.doc .copy-btn,.doc .mm-toggle,.doc .mm-copy,.doc .h-anchor,.doc .mm-zoom{display:none !important;}
-  .doc .code-block,.doc .mermaid-block,.doc table,.doc blockquote,.doc .callout,.doc pre{page-break-inside:avoid;}
-  .doc .mermaid-block[data-view] .mermaid-source{display:none !important;}
+  .doc .code-block,.doc .diagram-block,.doc table,.doc blockquote,.doc .callout,.doc pre{page-break-inside:avoid;}
+  .doc .diagram-block[data-view] .diagram-source{display:none !important;}
   body{overflow:visible; height:auto; display:block;}
 }

@@ -1308,7 +1308,7 @@ input[type=range]{width:100%; accent-color:var(--accent);}
 .src-live > :first-child{margin-top:0;}
 .src-live > :last-child{margin-bottom:0;}
 .src-live .cb-head,.src-live .mm-tools{display:none;}
-.src-live .mermaid-block{margin:0; border:none; background:transparent;}
+.src-live .diagram-block{margin:0; border:none; background:transparent;}
 .src-live-err{margin:0; font-family:var(--doc-head); font-size:12px; color:var(--c-danger,#ea2261);}
 @media (max-width:760px){.src-panes{grid-template-columns:minmax(0,1fr);}
   .src-panes .blk-editor{border-right:none; border-bottom:1px solid var(--doc-border);}

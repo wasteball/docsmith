@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { cleanLabel, seriesClass } from '../src/diagrams/base.js';
 import { parse as parseFlow } from '../src/diagrams/flowchart.js';
 import {
-  detect, registerRenderer, renderDiagram, supported,
+  detect, registerRenderer, renderDiagram, renderFencedDiagram,
+  supported, supportsFence, UnsupportedDiagram,
 } from '../src/diagrams/index.js';
 
 const suppliedFlowchart = `flowchart TD
@@ -80,8 +81,21 @@ assert.deepEqual(classStatement.styles.get('B'), {
   fill: '#112233', color: '#fff', stroke: '#abcdef',
 });
 assert.deepEqual(supported().map(({ id }) => id), [
-  'flowchart', 'state', 'sequence', 'gantt', 'mindmap', 'quadrant', 'pie',
+  'flowchart', 'state', 'sequence', 'gantt', 'mindmap', 'quadrant', 'pie', 'infographic',
 ]);
+assert.equal(supportsFence('MERMAID'), true);
+assert.equal(supportsFence(' infographic '), true);
+assert.equal(supportsFence('javascript'), false);
+assert.equal(detect('infographic list-row-horizontal-icon-arrow')?.id, 'infographic');
+assert.deepEqual(supported().find(({ id }) => id === 'infographic')?.fences, ['infographic']);
+assert.throws(
+  () => renderFencedDiagram('mermaid', 'infographic list-row-horizontal-icon-arrow'),
+  (error) => error instanceof UnsupportedDiagram && error.unsupportedKind === 'mermaid',
+);
+assert.throws(
+  () => renderFencedDiagram('infographic', 'flowchart LR\n A --> B'),
+  (error) => error instanceof UnsupportedDiagram && error.unsupportedKind === 'infographic',
+);
 
 const unregister = registerRenderer({
   id: 'test-chart',
@@ -91,7 +105,9 @@ const unregister = registerRenderer({
   render: (source) => `<svg data-source="${source}"></svg>`,
 });
 assert.equal(detect('testChart hello')?.id, 'test-chart');
+assert.deepEqual(supported().find(({ id }) => id === 'test-chart')?.fences, ['mermaid']);
 assert.equal(await renderDiagram('  testChart hello  '), '<svg data-source="TESTCHART HELLO"></svg>');
+assert.equal(await renderFencedDiagram('MERMAID', '  testChart hello  '), '<svg data-source="TESTCHART HELLO"></svg>');
 unregister();
 assert.equal(detect('testChart hello'), null);
 

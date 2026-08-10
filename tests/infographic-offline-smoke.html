@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docsmith Infographic offline smoke</title>
+<style>body{margin:0;padding:24px;background:#14171f}#diagram{width:min(1100px,100%);margin:auto}#diagram>svg{display:block;width:100%;height:auto}</style>
+</head>
+<body>
+<div id="diagram">正在画图…</div>
+<script>
+window.__remoteAttempts = [];
+const NativeFetch = window.fetch;
+window.fetch = function (input) {
+  const url = String(input && input.url || input || '');
+  if (/^https?:/i.test(url)) { window.__remoteAttempts.push(url); return Promise.reject(new Error('offline smoke blocked remote fetch')); }
+  return NativeFetch.apply(this, arguments);
+};
+const nativeAppend = Element.prototype.appendChild;
+Element.prototype.appendChild = function (node) {
+  const url = node && (node.href || node.src);
+  if (url && /^https?:/i.test(String(url))) {
+    window.__remoteAttempts.push(String(url));
+    throw new Error('offline smoke blocked remote element');
+  }
+  return nativeAppend.call(this, node);
+};
+</script>
+<script src="../src/vendor/infographic.min.js"></script>
+<script type="module">
+import { renderFencedDiagram } from '../src/diagrams/index.js';
+const source = `infographic list-row-horizontal-icon-arrow
+data
+  title 客户增长引擎
+  desc 多渠道触达与复购提升
+  items
+    - label 线索获取
+      value 18.6
+      desc 渠道投放与内容获客
+      icon rocket-launch
+    - label 转化提效
+      value 12.4
+      desc 线索评分与自动跟进
+      icon progress-check
+    - label 复购提升
+      value 9.8
+      desc 会员体系与权益运营
+      icon account-sync
+    - label 口碑传播
+      value 6.2
+      desc 社群激励与推荐裂变
+      icon account-group`;
+try {
+  const svg = await renderFencedDiagram('infographic', source);
+  document.querySelector('#diagram').innerHTML = svg;
+  const root = document.querySelector('#diagram svg');
+  const result = {
+    rendered: !!root,
+    darkTheme: /(?:#(?:0b1220|14171f|1[0-9a-f]{5})|rgb\()/i.test(svg),
+    allText: ['客户增长引擎','线索获取 · 18.6','转化提效 · 12.4','复购提升 · 9.8','口碑传播 · 6.2'].every((text) => root.textContent.includes(text)),
+    fourIcons: root.querySelectorAll('[data-element-type="item-icon"]').length === 4,
+    noRemoteAttempts: window.__remoteAttempts.length === 0,
+  };
+  window.__offlineSmoke = result;
+  document.body.dataset.rendered = Object.values(result).every(Boolean) ? 'true' : 'error';
+  if (document.body.dataset.rendered === 'error') document.title = JSON.stringify(result);
+} catch (error) {
+  window.__offlineSmoke = { error: error.stack || error.message, remoteAttempts: window.__remoteAttempts };
+  document.body.dataset.rendered = 'error';
+  document.title = error.message;
+}
+</script>
+</body>
+</html>

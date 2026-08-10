@@ -247,16 +247,17 @@
      把两套文案写在 data-diagram-label / data-source-label 上，切换时直接读，
      省得同样的字符串在 JS 里再抄一遍 —— 以前就是抄漏了才出现「页面上写
      看源码、导出的网页里写 View diagram」这种两副面孔。 */
-  function mermaidBlock(code) {
-    return '<div class="mermaid-block" data-view="diagram"><div class="cb-head"><span class="cb-lang">mermaid</span><span class="cb-actions">' +
+  function diagramBlock(code, language) {
+    var lang = String(language || '').toLowerCase();
+    return '<div class="diagram-block" data-view="diagram" data-diagram-language="' + escapeHtml(lang) + '"><div class="cb-head"><span class="cb-lang">' + escapeHtml(lang) + '</span><span class="cb-actions">' +
       '<button class="mm-toggle" type="button" data-diagram-label="View source" data-source-label="View diagram">View source</button>' +
       '<button class="mm-copy" type="button" data-diagram-label="Copy image" data-source-label="Copy code">Copy image</button></span></div>' +
-      '<div class="mermaid-render"><div class="mm-loading">正在画图…</div></div>' +
-      '<pre class="mermaid-source"><code class="language-mermaid">' + escapeHtml(code) + '</code></pre></div>';
+      '<div class="diagram-render"><div class="mm-loading">正在画图…</div></div>' +
+      '<pre class="diagram-source"><code class="language-' + escapeHtml(lang) + '">' + escapeHtml(code) + '</code></pre></div>';
   }
   function codeBlock(code, infostring) {
-    var lang = (infostring || '').trim().split(/\s+/)[0];
-    if (lang === 'mermaid') return mermaidBlock(code);
+    var lang = (infostring || '').trim().split(/\s+/)[0].toLowerCase();
+    if (window.DocsmithDiagrams && DocsmithDiagrams.supportsFence(lang)) return diagramBlock(code, lang);
     var hi, shown = lang || 'text';
     if (window.hljs) { try { if (lang && hljs.getLanguage(lang)) hi = hljs.highlight(code, { language: lang }).value; else { var r = hljs.highlightAuto(code); hi = r.value; shown = lang || r.language || 'text'; } } catch (e) { hi = escapeHtml(code); } } else hi = escapeHtml(code);
     return '<div class="code-block"><div class="cb-head"><span class="cb-lang">' + escapeHtml(shown) + '</span><button class="copy-btn" type="button">Copy</button></div><pre><code class="hljs language-' + escapeHtml(lang || '') + '">' + hi + '</code></pre></div>';
@@ -433,7 +434,7 @@
     bindLinks(preview);
     safe('tables', wrapTables); safe('callouts', transformCallouts); safe('inline-toc', fillInlineTOC);
     if (abbrDefs) safe('abbr', function () { wrapAbbr(abbrDefs); });
-    safe('images', setupImages); safe('tasks', setupTasks); safe('mermaid', function () { renderMermaid(); });
+    safe('images', setupImages); safe('tasks', setupTasks); safe('diagrams', function () { renderDiagrams(); });
     safe('outline', buildOutline); safe('status', function () { updateStatus(srcText); });
     setTimeout(function () { safe('scrollspy', updateActiveHeading); }, 30);
     setTimeout(function () { safe('scrollnav', updateScrollNav); }, 40);
@@ -583,7 +584,7 @@
     function fit(tries) {
       if (dead) return;
       /* 宽度用 getBoundingClientRect 而不是 clientWidth：
-         clientWidth 是取整后的整数，图表是逐个顺序渲染的（见 renderMermaid 的
+         clientWidth 是取整后的整数，图表是逐个顺序渲染的（见 renderDiagrams 的
          step()），挂载那一刻容器可能还在布局中间态 —— 差一两个像素，
          图就会看着偏左一点，多张图叠起来就很明显（用户说的「没有居中」）。
          rect.width 是亚像素精度，且必要时下面还会再校一次。 */
@@ -752,6 +753,15 @@
   }
   function mountDiagram(target, svgHtml) {
     svgHtml = fixMermaidEntities(svgHtml);
+    var language = target.closest('.diagram-block')?.dataset.diagramLanguage || 'mermaid';
+    if (window.DOMPurify && language !== 'infographic') {
+      svgHtml = DOMPurify.sanitize(svgHtml, { USE_PROFILES: { svg: true, svgFilters: true }, FORBID_TAGS: ['script', 'foreignObject'] });
+    }
+    /* Infographic 的本地适配器已经清掉 script/style、事件属性和远程 href。
+       这里不能再过 DOMPurify 的纯 SVG profile：AntV 的中文排版依赖
+       foreignObject/span，图标依赖 symbol/use，二次清洗会把两者都掏空。 */
+    var probe = document.createElement('template'); probe.innerHTML = svgHtml;
+    if (!probe.content.querySelector('svg')) throw new Error('图表没有生成 SVG');
     destroyPanZoom(target);
     target.innerHTML = '<div class="mm-viewport" tabindex="0" role="img" aria-label="图表，可拖动和缩放">'
       + '<div class="mm-stage">' + svgHtml + '</div></div>' + toolsHtml(false);
@@ -788,9 +798,9 @@
     }).join('\n');
   }
   var mmRunToken = 0;
-  function renderMermaid(root) {
-    if (!window.mermaid) return;
-    var blocks = (root || preview).querySelectorAll('.mermaid-block');
+  function renderDiagrams(root) {
+    if (!window.DocsmithDiagrams) return;
+    var blocks = (root || preview).querySelectorAll('.diagram-block');
     if (!blocks.length) return;
     var idx = 0;
     /* 每次重渲染换一个令牌。上一轮还在排队的图会在下一步发现令牌变了就退出，
@@ -809,15 +819,17 @@
       if (idx >= blocks.length) return;
       var b = blocks[idx++];
       if (!b.isConnected) { step(); return; }
-      var codeEl = b.querySelector('.mermaid-source code'), target = b.querySelector('.mermaid-render');
+      var codeEl = b.querySelector('.diagram-source code'), target = b.querySelector('.diagram-render');
       if (!codeEl || !target) { step(); return; }
-      var src = prepareMermaidSource(codeEl.textContent), id = 'mmd-' + (mmCounter++);
+      var language = b.dataset.diagramLanguage || 'mermaid';
+      var raw = codeEl.textContent;
+      var src = language === 'mermaid' ? prepareMermaidSource(raw) : raw;
       if (!src || !src.trim()) { mmError(b, target, new Error('empty diagram')); step(); return; }
       var advance = function () { sweepMermaidLeftovers(); step(); };
       try {
-        var out = mermaid.render(id, src);
+        var out = DocsmithDiagrams.renderFencedDiagram(language, src);
         if (out && typeof out.then === 'function') {
-          out.then(function (r) { try { mountDiagram(target, r.svg); } catch (e) { mmError(b, target, e); } })
+          out.then(function (svg) { try { mountDiagram(target, svg && svg.svg ? svg.svg : svg); } catch (e) { mmError(b, target, e); } })
              .catch(function (e) { mmError(b, target, e); })
              .then(advance, advance);
         } else if (typeof out === 'string') { mountDiagram(target, out); advance(); }
@@ -835,12 +847,10 @@
     syncMmLabel(block.querySelector('.mm-toggle'), 'source');
     syncMmLabel(block.querySelector('.mm-copy'), 'source');
     var kind = err && err.unsupportedKind;
-    if (kind && window.mermaid && window.mermaid.__builtin) {
-      // 自带的画图器只做流程图。说清楚，别让用户以为是自己写错了。
+    if (kind && window.DocsmithDiagrams) {
       target.innerHTML = '<div class="mm-error mm-notice">'
-        + '<b>这类图（' + escapeHtml(kind) + '）需要完整版组件</b>'
-        + '<span>自带的画图器支持 graph / flowchart 流程图。'
-        + '源码在下面，内容一个字都没丢。</span></div>';
+        + '<b>暂不支持这类图（' + escapeHtml(kind) + '）</b>'
+        + '<span>已经切换到源码，内容一个字都没丢。</span></div>';
       return;
     }
     target.innerHTML = '<div class="mm-error">画不出来 —— ' + escapeHtml((err && err.message) || '语法有问题') + '</div>';
@@ -976,7 +986,7 @@
     if (!block) return null;
     if (block._pngReady) return Promise.resolve(block._pngReady);
     if (block._pngPromise) return block._pngPromise;
-    var svg = block.querySelector('.mm-stage svg') || block.querySelector('.mermaid-render svg');
+    var svg = block.querySelector('.mm-stage svg') || block.querySelector('.diagram-render svg');
     if (!svg) return null;
     var p = svgToPng(svg).then(function (out) { block._pngReady = out; block._pngPromise = null; return out; },
                                function (e) { block._pngPromise = null; return Promise.reject(e); });
@@ -984,7 +994,7 @@
     return p;
   }
   function copyDiagramImage(block, btn) {
-    var svg = block.querySelector('.mm-stage svg') || block.querySelector('.mermaid-render svg');
+    var svg = block.querySelector('.mm-stage svg') || block.querySelector('.diagram-render svg');
     if (!svg) { toast('这个图表还没渲染完成', 'err'); return; }
     var d = svgDims(svg);
     var okMsg = function (o) { flashBtn(btn, 'Copied'); toast('复制图片成功 · ' + o.w + '×' + o.h + (o.scale < 1 ? '（已按 ' + Math.round(o.scale * 100) + '% 缩放）' : ''), 'ok'); };
@@ -1008,7 +1018,7 @@
   function warmFromEvent(e) {
     var b = e.target && e.target.closest && e.target.closest('.mm-copy');
     if (!b) return;
-    var blk = b.closest('.mermaid-block');
+    var blk = b.closest('.diagram-block');
     if (blk && blk.dataset.view !== 'source') warmPng(blk);
   }
   preview.addEventListener('pointerover', warmFromEvent);
@@ -1024,7 +1034,7 @@
        图表视图 → 复制图片；源码视图 → 复制源码。见 mermaidBlock() 的注释。 */
     var mmCopy = e.target.closest('.mm-copy');
     if (mmCopy) {
-      var mmBlk = mmCopy.closest('.mermaid-block');
+      var mmBlk = mmCopy.closest('.diagram-block');
       if (mmBlk && mmBlk.dataset.view === 'source') {
         var srcEl = mmBlk.querySelector('pre code');
         copyText(srcEl ? srcEl.textContent : '', mmCopy, 'Copied');
@@ -1036,7 +1046,7 @@
     }
     var copy = e.target.closest('.copy-btn');
     if (copy) {
-      var block = copy.closest('.code-block, .mermaid-block');
+      var block = copy.closest('.code-block, .diagram-block');
       var el = block.querySelector('pre code');
       copyText(el ? el.textContent : '', copy, 'Copied');
       toast('复制代码成功', 'ok');
@@ -1044,7 +1054,7 @@
     }
     var tog = e.target.closest('.mm-toggle');
     if (tog) {
-      var blk = tog.closest('.mermaid-block');
+      var blk = tog.closest('.diagram-block');
       var next = blk.dataset.view === 'diagram' ? 'source' : 'diagram';
       blk.dataset.view = next;
       syncMmLabel(tog, next);
@@ -1481,7 +1491,7 @@
     "if(z==='in')pz.zoomAt(1.25);else if(z==='out')pz.zoomAt(1/1.25);else pz.fit();});",
     "return t;}",
     "function boot(){",
-    "var list=document.querySelectorAll('.mermaid-render .mm-viewport');",
+    "var list=document.querySelectorAll('.diagram-render .mm-viewport');",
     "for(var i=0;i<list.length;i++){var vp=list[i];",
     "if(vp.__pz)continue;",
     /* 导出的 HTML 是工作台 DOM 的克隆，里面已经带着一条 .mm-tools（那是
@@ -1511,7 +1521,7 @@
     "document.addEventListener('click',function(e){",
     /* 图表块那颗合并后的复制键 */
     "var m=e.target.closest('.mm-copy');",
-    "if(m){var blk=m.closest('.mermaid-block');",
+    "if(m){var blk=m.closest('.diagram-block');",
     "if(blk.dataset.view==='source'){var el=blk.querySelector('pre code');",
     "navigator.clipboard&&navigator.clipboard.writeText(el?el.textContent:'');flash(m,'Copied');return;}",
     "var svg=blk.querySelector('.mm-stage svg');if(!svg)return;",
@@ -1527,12 +1537,12 @@
     "else save();});return;}",
     /* 普通代码块的复制键 */
     "var c=e.target.closest('.copy-btn');",
-    "if(c){var b2=c.closest('.code-block,.mermaid-block');var el2=b2&&b2.querySelector('pre code');",
+    "if(c){var b2=c.closest('.code-block,.diagram-block');var el2=b2&&b2.querySelector('pre code');",
     "navigator.clipboard&&navigator.clipboard.writeText(el2?el2.textContent:'');",
     "var o=c.textContent;c.textContent='Copied';setTimeout(function(){c.textContent=o;},1400);return;}",
     /* 视图切换：两颗按钮的文案都从 data-* 读，和工作台永远一致 */
     "var g=e.target.closest('.mm-toggle');",
-    "if(g){var k=g.closest('.mermaid-block');var n=k.dataset.view==='diagram'?'source':'diagram';",
+    "if(g){var k=g.closest('.diagram-block');var n=k.dataset.view==='diagram'?'source':'diagram';",
     "k.dataset.view=n;",
     "var lab=function(btn){if(!btn)return;var t=n==='source'?btn.dataset.sourceLabel:btn.dataset.diagramLabel;if(t)btn.textContent=t;};",
     "lab(g);lab(k.querySelector('.mm-copy'));",
@@ -1724,7 +1734,7 @@
     + '.doc{margin:0 auto;}'
     + '.doc .h-anchor{display:none !important;}'
     /* 画布要能裁剪（否则拖动时图会溢出到正文上），且默认手型提示可拖 */
-    + '.doc .mermaid-render{position:relative;}'
+    + '.doc .diagram-render{position:relative;}'
     + '.doc .mm-viewport{overflow:hidden; cursor:grab; touch-action:pan-y;}'
     + '.doc .mm-viewport.grabbing{cursor:grabbing; touch-action:none;}'
     + '.doc .mm-stage{transform-origin:0 0;}'
@@ -1879,12 +1889,12 @@
     closeBlockEditor(true); endCellEdit(true);
     if (ROOT.dataset.mode === 'source') setMode('read');
   }
-  function wordWaitForMermaid(timeout) {
+  function wordWaitForDiagrams(timeout) {
     return new Promise(function (resolve) {
       var started = Date.now();
       (function check() {
-        var pending = $$('.mermaid-block', preview).some(function (b) {
-          return !b.querySelector('.mm-stage svg,.mermaid-render svg,.mm-error');
+        var pending = $$('.diagram-block', preview).some(function (b) {
+          return !b.querySelector('.mm-stage svg,.diagram-render svg,.mm-error');
         });
         if (!pending || Date.now() - started >= timeout) { resolve(); return; }
         setTimeout(check, 90);
@@ -2073,21 +2083,23 @@
     var code = el.querySelector('pre code'), lang = el.querySelector('.cb-lang');
     return wordCodeParagraphs(code ? code.textContent : el.textContent, lang ? lang.textContent.trim() : '', ctx);
   }
-  async function wordMermaidBlock(el, ctx) {
+  async function wordDiagramBlock(el, ctx) {
+    var language = (el.dataset.diagramLanguage || 'diagram').trim().toLowerCase();
+    var label = language === 'infographic' ? '信息图' : (language === 'mermaid' ? 'Mermaid 图表' : '图表');
     try {
-      var svg = el.querySelector('.mm-stage svg') || el.querySelector('.mermaid-render svg');
+      var svg = el.querySelector('.mm-stage svg') || el.querySelector('.diagram-render svg');
       if (!svg) throw new Error('图表没有渲染完成');
       var png = await svgToPng(svg), dims = svgDims(svg), scale = Math.min(1, 620 / dims.w, 760 / dims.h);
       var run = new ctx.D.ImageRun({
         data: await wordBlobBytes(png.blob),
         transformation: { width: Math.max(1, Math.round(dims.w * scale)), height: Math.max(1, Math.round(dims.h * scale)) },
-        altText: { title: 'Mermaid diagram', description: 'Mermaid diagram', name: 'Mermaid diagram' }
+        altText: { title: label, description: label, name: label }
       });
       return [new ctx.D.Paragraph({ children: [run], alignment: ctx.D.AlignmentType.CENTER, spacing: { before: 100, after: 180 }, keepLines: true })];
     } catch (e) {
-      ctx.warnings.push('Mermaid：' + ((e && e.message) || '无法嵌入'));
-      var code = el.querySelector('.mermaid-source code');
-      return wordCodeParagraphs(code ? code.textContent : '', 'mermaid', ctx);
+      ctx.warnings.push(label + '：' + ((e && e.message) || '无法嵌入'));
+      var code = el.querySelector('.diagram-source code');
+      return wordCodeParagraphs(code ? code.textContent : '', language, ctx);
     } finally { wordMediaDone(ctx); }
   }
   function wordAddNumbering(el, ctx, depth) {
@@ -2187,7 +2199,7 @@
     if (el.classList.contains('blk')) return wordChildBlocks(el, ctx, depth);
     if (el.classList.contains('table-wrap')) { var table = el.querySelector(':scope > table') || el.querySelector('table'); return table ? wordTable(table, ctx) : []; }
     if (el.classList.contains('code-block')) return wordCodeBlock(el, ctx);
-    if (el.classList.contains('mermaid-block')) return wordMermaidBlock(el, ctx);
+    if (el.classList.contains('diagram-block')) return wordDiagramBlock(el, ctx);
     if (el.classList.contains('math-block')) {
       var ann = el.querySelector('annotation[encoding="application/x-tex"]'), value = (ann && ann.textContent) || el.textContent || '';
       return [new ctx.D.Paragraph({ children: [new ctx.D.TextRun({ text: value.trim(), font: 'Cambria Math', italics: true, size: 22 })], alignment: ctx.D.AlignmentType.CENTER, spacing: { before: 100, after: 160 }, keepLines: true })];
@@ -2261,10 +2273,10 @@
     wordExporting = true; wordSetBusy(true, 'Preparing...');
     try {
       wordCommitEditing();
-      await wordWaitForMermaid(9000);
+      await wordWaitForDiagrams(9000);
       var D = window.docx, ctx = {
         D: D, accent: wordAccent(), warnings: [], imageCache: {}, numbering: [], listCounter: 0,
-        mediaTotal: preview.querySelectorAll('img,.mermaid-block').length, mediaDone: 0
+        mediaTotal: preview.querySelectorAll('img,.diagram-block').length, mediaDone: 0
       };
       wordProgress(ctx, ctx.mediaTotal ? 'Images' : 'Building');
       var children = await wordChildBlocks(preview, ctx, 0);
@@ -2592,8 +2604,8 @@
     try { window.dispatchEvent(new CustomEvent('docsmith:text-changed')); } catch (e) {}
   }
   /* Typing in one cell shouldn't cost a whole-document re-render (and shouldn't
-     make every Mermaid diagram in the file redraw). When a change provably
-     touches a single non-heading block, only that block is re-rendered. */
+     make every diagram in the file redraw). When a change provably touches a
+     single non-heading block, only that block is re-rendered. */
   function patchBlock(next, i) {
     var old = docBlocks[i]; if (!old) return false;
     var nb;
@@ -2602,7 +2614,8 @@
     for (var k = 0; k < nb.length; k++) if (k !== i && nb[k].raw !== docBlocks[k].raw) return false;
     var t = nb[i];
     if (t.type === 'heading' || old.type === 'heading') return false;       // ids / outline would shift
-    if (/\[\^|!\[|<img|mermaid/.test(t.raw) || /\[\^|!\[|<img|mermaid/.test(old.raw)) return false;
+    if (/\[\^|!\[|<img|```\s*(?:mermaid|infographic)\b/i.test(t.raw)
+      || /\[\^|!\[|<img|```\s*(?:mermaid|infographic)\b/i.test(old.raw)) return false;
     var el = blkEl(i); if (!el) return false;
     var html;
     try {
@@ -2680,7 +2693,7 @@
      写回时把 DOM 直译成 Markdown —— 源码始终是唯一真相。 */
   var rich = null;                 // {i, el, type, orig, pending}
   var RICH_TYPES = { paragraph: 1, heading: 1, list: 1, blockquote: 1 };
-  var NO_RICH = '.katex, .math-block, .mermaid-block, pre, img, .toc-inline, .fn-ref, table, .raw-fallback';
+  var NO_RICH = '.katex, .math-block, .diagram-block, pre, img, .toc-inline, .fn-ref, table, .raw-fallback';
 
   function richOK(el, type) { return !!RICH_TYPES[type] && !el.querySelector(NO_RICH); }
 
@@ -3030,7 +3043,7 @@
     var b = docBlocks[i], el = blkEl(i); if (!b || !el) return;
     hideHandles();
     var orig = blockSource(b);
-    var stash = el.querySelector('.mermaid-block, img') ? null : el.innerHTML;
+    var stash = el.querySelector('.diagram-block, img') ? null : el.innerHTML;
     var kind = srcLabel(b.type, orig);
     var live = /^```mermaid/.test(orig) || /^\$\$/.test(orig) || b.type === 'table';
 
@@ -3071,8 +3084,14 @@
     var c = caret === 'start' ? 0 : orig.length;
     try { ta.setSelectionRange(c, c); } catch (e) {}
   }
+  function diagramFence(raw) {
+    var match = /^```\s*(mermaid|infographic)\b/i.exec(raw);
+    return match ? match[1].toLowerCase() : '';
+  }
   function srcLabel(type, raw) {
-    if (/^```mermaid/.test(raw)) return '流程图源码（Mermaid）';
+    var fence = diagramFence(raw);
+    if (fence === 'mermaid') return '图表源码（Mermaid）';
+    if (fence === 'infographic') return '信息图源码（Infographic）';
     if (type === 'code') return '代码块';
     if (/^\$\$/.test(raw)) return '数学公式';
     if (type === 'table') return '表格源码';
@@ -3081,7 +3100,7 @@
   }
   /** 一句人话，告诉用户眼前这堆符号是干什么的。 */
   function srcHint(type, raw) {
-    if (/^```mermaid/.test(raw)) return '改左边的文字，右边立刻重画';
+    if (diagramFence(raw)) return '改左边的文字，右边立刻重画';
     if (type === 'code') return '代码原样保留，不会被格式化';
     if (/^\$\$/.test(raw)) return '改左边，右边是排版后的样子';
     if (type === 'table') return '一行一条记录，竖线分隔各列';
@@ -3093,7 +3112,7 @@
   function paintLive(box, text) {
     try {
       box.innerHTML = renderBlockHtml(lexBlocks(String(text || ''))[0] || { type: 'paragraph', raw: '' }, '', [], {});
-      if (window.mermaid) renderMermaid(box);
+      if (window.DocsmithDiagrams) renderDiagrams(box);
     } catch (e) {
       box.innerHTML = '<p class="src-live-err">这样写画不出来 —— ' + escapeHtml((e && e.message) || '再检查一下') + '</p>';
     }
@@ -4320,7 +4339,7 @@
     safe('g-tables', function () { wrapTables(root); });
     safe('g-callouts', function () { transformCallouts(root); });
     safe('g-images', function () { setupImages(root); });
-    safe('g-mermaid', function () { renderMermaid(root); });
+    safe('g-mermaid', function () { renderDiagrams(root); });
     safe('g-links', function () { bindLinks(root); });
     root.querySelectorAll('[id]').forEach(function (n) { n.removeAttribute('id'); });
     root.querySelectorAll('input[type=checkbox]').forEach(function (n) { n.disabled = true; n.removeAttribute('data-task'); });

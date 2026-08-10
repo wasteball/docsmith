@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docsmith Infographic workspace smoke</title>
+<style>html,body,iframe{width:100%;height:100%;margin:0;border:0}</style>
+</head>
+<body>
+<iframe id="workspace" src="../src/views/markdown/index.html"></iframe>
+<script>
+const source = `# 信息图回归
+
+\`\`\`infographic
+infographic list-row-horizontal-icon-arrow
+data
+  title 客户增长引擎
+  desc 多渠道触达与复购提升
+  items
+    - label 线索获取
+      value 18.6
+      desc 渠道投放与内容获客
+      icon rocket-launch
+    - label 转化提效
+      value 12.4
+      desc 线索评分与自动跟进
+      icon progress-check
+    - label 复购提升
+      value 9.8
+      desc 会员体系与权益运营
+      icon account-sync
+    - label 口碑传播
+      value 6.2
+      desc 社群激励与推荐裂变
+      icon account-group
+\`\`\``;
+
+const frame = document.querySelector('#workspace');
+frame.addEventListener('load', () => {
+  const win = frame.contentWindow;
+  const doc = frame.contentDocument;
+  const started = Date.now();
+  (function waitForApi() {
+    if (win.MDW && win.DocsmithDiagrams) {
+      win.MDW.setText(source);
+      waitForDiagram();
+      return;
+    }
+    if (Date.now() - started > 12000) return fail('工作台没有启动');
+    setTimeout(waitForApi, 50);
+  })();
+
+  function waitForDiagram() {
+    const block = doc.querySelector('.diagram-block[data-diagram-language="infographic"]');
+    const svg = block && block.querySelector('.diagram-render .mm-stage svg');
+    const error = block && block.querySelector('.mm-error');
+    if (error) return fail(error.textContent);
+    if (svg) {
+      const text = svg.textContent || '';
+      const required = ['客户增长引擎', '多渠道触达与复购提升', '线索获取', '18.6', '转化提效', '12.4', '复购提升', '9.8', '口碑传播', '6.2'];
+      const result = {
+        language: block.dataset.diagramLanguage,
+        sourceHidden: getComputedStyle(block.querySelector('.diagram-source')).display === 'none',
+        hasViewport: !!block.querySelector('.mm-viewport'),
+        hasTools: !!block.querySelector('.mm-tools'),
+        hasFourIcons: svg.querySelectorAll('[data-element-type="item-icon"]').length === 4,
+        hasAllText: required.every((item) => text.includes(item)),
+        noRemoteHref: !Array.from(svg.querySelectorAll('[href],[xlink\\:href]')).some((node) => /^https?:/i.test(node.getAttribute('href') || node.getAttribute('xlink:href') || '')),
+      };
+      const toggle = block.querySelector('.mm-toggle');
+      const copy = block.querySelector('.mm-copy');
+      toggle.click();
+      result.sourceToggle = block.dataset.view === 'source'
+        && copy.textContent === 'Copy code'
+        && getComputedStyle(block.querySelector('.diagram-render')).display === 'none';
+      toggle.click();
+      result.diagramToggle = block.dataset.view === 'diagram'
+        && copy.textContent === 'Copy image'
+        && getComputedStyle(block.querySelector('.diagram-source')).display === 'none';
+      window.__workspaceSmoke = result;
+      document.body.dataset.rendered = Object.values(result).every(Boolean) ? 'true' : 'error';
+      if (document.body.dataset.rendered === 'error') document.title = JSON.stringify(result);
+      return;
+    }
+    if (Date.now() - started > 20000) return fail('信息图渲染超时');
+    setTimeout(waitForDiagram, 80);
+  }
+});
+function fail(message) {
+  window.__workspaceSmoke = { error: String(message) };
+  document.body.dataset.rendered = 'error';
+  document.title = String(message);
+}
+</script>
+</body>
+</html>

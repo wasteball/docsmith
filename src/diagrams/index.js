@@ -15,6 +15,7 @@ import { backgroundOf } from './theme.js';
 import { render as renderFlow } from './flowchart.js';
 import { render as renderGantt } from './gantt.js';
 import { renderMindmap, renderQuadrant, renderSequence, renderPie } from './extras.js';
+import { renderInfographic } from './infographic.js';
 
 /*
  * 图表不是写死在一个 if/else 里的功能，而是注册表：每种图只声明自己的 id、名称、
@@ -40,11 +41,18 @@ function validateRenderer(renderer) {
 
 /**
  * 注册一种图表。返回注销函数，测试或可选扩展可以干净地撤销。
- * @param {{id:string,name:string,match:RegExp|Function,normalize?:Function,render:Function}} renderer
+ * @param {{id:string,name:string,fences?:string[],match:RegExp|Function,normalize?:Function,render:Function}} renderer
  */
 export function registerRenderer(renderer) {
   validateRenderer(renderer);
-  const item = Object.freeze({ normalize: (src) => String(src ?? ''), ...renderer, id: renderer.id.trim() });
+  const fences = (renderer.fences || ['mermaid']).map((fence) => String(fence).trim().toLowerCase()).filter(Boolean);
+  if (!fences.length) throw new TypeError(`图表渲染器 ${renderer.id} 缺少围栏语言`);
+  const item = Object.freeze({
+    normalize: (src) => String(src ?? ''),
+    ...renderer,
+    id: renderer.id.trim(),
+    fences: Object.freeze(Array.from(new Set(fences))),
+  });
   if (RENDERERS.has(item.id)) throw new Error(`图表渲染器已存在：${item.id}`);
   RENDERERS.set(item.id, item);
   return () => { if (RENDERERS.get(item.id) === item) RENDERERS.delete(item.id); };
@@ -65,7 +73,24 @@ export function detect(src) {
 
 /** 支持哪些图种，界面上要列出来告诉用户。 */
 export function supported() {
-  return Array.from(RENDERERS.values()).map(({ id, name }) => ({ id, name }));
+  return Array.from(RENDERERS.values()).map(({ id, name, fences }) => ({ id, name, fences: [...fences] }));
+}
+
+/** 这个 Markdown 围栏是否应当按图表处理。 */
+export function supportsFence(language) {
+  const lang = String(language ?? '').trim().toLowerCase();
+  return Array.from(RENDERERS.values()).some(({ fences }) => fences.includes(lang));
+}
+
+/** 按围栏语言画图，避免把 Infographic 冒充成 Mermaid。 */
+export function renderFencedDiagram(language, src) {
+  const lang = String(language ?? '').trim().toLowerCase();
+  const renderer = detect(src);
+  if (!renderer || !renderer.fences.includes(lang)) {
+    throw new UnsupportedDiagram(lang || '未知');
+  }
+  const normalized = renderer.normalize(String(src ?? ''), { id: renderer.id, name: renderer.name });
+  return renderer.render(normalized, { id: renderer.id, name: renderer.name, fence: lang });
 }
 
 [
@@ -76,6 +101,7 @@ export function supported() {
   { id: 'mindmap', name: '思维导图', match: /^mindmap\b/i, render: renderMindmap },
   { id: 'quadrant', name: '四象限图', match: /^quadrantChart\b/i, render: renderQuadrant },
   { id: 'pie', name: '饼图', match: /^pie\b/i, render: renderPie },
+  { id: 'infographic', name: '信息图', fences: ['infographic'], match: /^infographic\b/i, render: renderInfographic },
 ].forEach(registerRenderer);
 
 /**
@@ -120,7 +146,8 @@ export function install(win = window) {
   };
   win.mermaid = api;
   win.DocsmithDiagrams = {
-    renderDiagram, detect, supported, registerRenderer, background: backgroundOf,
+    renderDiagram, renderFencedDiagram, detect, supported, supportsFence,
+    registerRenderer, background: backgroundOf,
   };
   return api;
 }

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docsmith Infographic smoke</title>
+<link rel="stylesheet" href="../src/core/tokens.css">
+<link rel="stylesheet" href="../src/diagrams/diagrams.css">
+<style>
+  body { margin: 0; padding: 24px; background: #fff; }
+  #diagram { width: min(1100px, 100%); min-height: 480px; margin: 0 auto; }
+  #diagram > svg { display: block; width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<div id="diagram">正在画图…</div>
+<script src="../src/vendor/infographic.min.js"></script>
+<script type="module">
+import { renderFencedDiagram } from '../src/diagrams/index.js';
+
+const source = `infographic list-row-horizontal-icon-arrow
+data
+  title 客户增长引擎
+  desc 多渠道触达与复购提升
+  items
+    - label 线索获取
+      value 18.6
+      desc 渠道投放与内容获客
+      icon rocket-launch
+    - label 转化提效
+      value 12.4
+      desc 线索评分与自动跟进
+      icon progress-check
+    - label 复购提升
+      value 9.8
+      desc 会员体系与权益运营
+      icon account-sync
+    - label 口碑传播
+      value 6.2
+      desc 社群激励与推荐裂变
+      icon account-group`;
+
+try {
+  const svg = await renderFencedDiagram('infographic', source);
+  const diagram = document.querySelector('#diagram');
+  diagram.innerHTML = svg;
+  const root = diagram.querySelector('svg');
+  if (!root) throw new Error('没有生成 SVG');
+  document.body.dataset.rendered = 'true';
+  window.__infographicSmoke = {
+    source,
+    svg,
+    text: root.textContent,
+    remoteUrls: Array.from(root.querySelectorAll('[href],[xlink\\:href]'))
+      .map((node) => node.getAttribute('href') || node.getAttribute('xlink:href') || '')
+      .filter((value) => /^https?:/i.test(value)),
+  };
+} catch (error) {
+  document.querySelector('#diagram').textContent = error.stack || error.message;
+  document.body.dataset.rendered = 'error';
+  window.__infographicSmoke = { error: error.stack || error.message };
+}
+</script>
+</body>
+</html>
