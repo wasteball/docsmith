@@ -16,27 +16,67 @@ import { render as renderFlow } from './flowchart.js';
 import { render as renderGantt } from './gantt.js';
 import { renderMindmap, renderQuadrant, renderSequence, renderPie } from './extras.js';
 
-/* 关键字 → 渲染器。键要用小写比对，因为 mermaid 的写法大小写混杂。 */
-const RENDERERS = [
-  { match: /^(graph|flowchart)\b/i, name: '流程图', run: (s) => renderFlow(s, 'flow') },
-  { match: /^stateDiagram(-v2)?\b/i, name: '状态图', run: (s) => renderFlow(s, 'state') },
-  { match: /^sequenceDiagram\b/i, name: '时序图', run: renderSequence },
-  { match: /^gantt\b/i, name: '甘特图', run: renderGantt },
-  { match: /^mindmap\b/i, name: '思维导图', run: renderMindmap },
-  { match: /^quadrantChart\b/i, name: '四象限图', run: renderQuadrant },
-  { match: /^pie\b/i, name: '饼图', run: renderPie },
-];
+/*
+ * 图表不是写死在一个 if/else 里的功能，而是注册表：每种图只声明自己的 id、名称、
+ * 识别规则、标准化器和渲染函数。以后加新图时不需要碰 Markdown 工作台，也不会把
+ * 某一种图的兼容补丁塞进通用调用链。
+ */
+const RENDERERS = new Map();
+
+function firstMeaningfulLine(src) {
+  return String(src ?? '').split('\n')
+    .map((line) => line.replace(/%%.*$/, '').trim())
+    .find(Boolean) || '';
+}
+
+function validateRenderer(renderer) {
+  if (!renderer || typeof renderer.id !== 'string' || !renderer.id.trim()) throw new TypeError('图表渲染器缺少 id');
+  if (typeof renderer.name !== 'string' || !renderer.name.trim()) throw new TypeError(`图表渲染器 ${renderer.id} 缺少名称`);
+  if (!(renderer.match instanceof RegExp) && typeof renderer.match !== 'function') {
+    throw new TypeError(`图表渲染器 ${renderer.id} 缺少识别规则`);
+  }
+  if (typeof renderer.render !== 'function') throw new TypeError(`图表渲染器 ${renderer.id} 缺少 render`);
+}
+
+/**
+ * 注册一种图表。返回注销函数，测试或可选扩展可以干净地撤销。
+ * @param {{id:string,name:string,match:RegExp|Function,normalize?:Function,render:Function}} renderer
+ */
+export function registerRenderer(renderer) {
+  validateRenderer(renderer);
+  const item = Object.freeze({ normalize: (src) => String(src ?? ''), ...renderer, id: renderer.id.trim() });
+  if (RENDERERS.has(item.id)) throw new Error(`图表渲染器已存在：${item.id}`);
+  RENDERERS.set(item.id, item);
+  return () => { if (RENDERERS.get(item.id) === item) RENDERERS.delete(item.id); };
+}
+
+function matches(renderer, header, src) {
+  if (typeof renderer.match === 'function') return Boolean(renderer.match(header, src));
+  renderer.match.lastIndex = 0;
+  return renderer.match.test(header);
+}
 
 /** 这段源码是哪种图？认不出来返回 null。 */
 export function detect(src) {
-  const first = String(src ?? '').split('\n').map((l) => l.trim()).filter(Boolean)[0] || '';
-  return RENDERERS.find((r) => r.match.test(first)) || null;
+  const source = String(src ?? '');
+  const header = firstMeaningfulLine(source);
+  return Array.from(RENDERERS.values()).find((renderer) => matches(renderer, header, source)) || null;
 }
 
 /** 支持哪些图种，界面上要列出来告诉用户。 */
 export function supported() {
-  return RENDERERS.map((r) => r.name);
+  return Array.from(RENDERERS.values()).map(({ id, name }) => ({ id, name }));
 }
+
+[
+  { id: 'flowchart', name: '流程图', match: /^(graph|flowchart)\b/i, render: (src) => renderFlow(src, 'flow') },
+  { id: 'state', name: '状态图', match: /^stateDiagram(-v2)?\b/i, render: (src) => renderFlow(src, 'state') },
+  { id: 'sequence', name: '时序图', match: /^sequenceDiagram\b/i, render: renderSequence },
+  { id: 'gantt', name: '甘特图', match: /^gantt\b/i, render: renderGantt },
+  { id: 'mindmap', name: '思维导图', match: /^mindmap\b/i, render: renderMindmap },
+  { id: 'quadrant', name: '四象限图', match: /^quadrantChart\b/i, render: renderQuadrant },
+  { id: 'pie', name: '饼图', match: /^pie\b/i, render: renderPie },
+].forEach(registerRenderer);
 
 /**
  * 画一张图。
@@ -44,12 +84,13 @@ export function supported() {
  * @throws {UnsupportedDiagram} 图种不认识
  */
 export function renderDiagram(src) {
-  const r = detect(src);
-  if (!r) {
-    const kind = (String(src ?? '').trim().split(/[\s\n]/)[0] || '未知').slice(0, 24);
+  const renderer = detect(src);
+  if (!renderer) {
+    const kind = (firstMeaningfulLine(src).split(/\s/)[0] || '未知').slice(0, 24);
     throw new UnsupportedDiagram(kind);
   }
-  return r.run(src);
+  const normalized = renderer.normalize(String(src ?? ''), { id: renderer.id, name: renderer.name });
+  return renderer.render(normalized, { id: renderer.id, name: renderer.name });
 }
 
 function asPromise(value) {
@@ -78,7 +119,9 @@ export function install(win = window) {
     supported,
   };
   win.mermaid = api;
-  win.DocsmithDiagrams = { renderDiagram, detect, supported, background: backgroundOf };
+  win.DocsmithDiagrams = {
+    renderDiagram, detect, supported, registerRenderer, background: backgroundOf,
+  };
   return api;
 }
 

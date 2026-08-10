@@ -29,7 +29,7 @@ const PALETTE = {
     accent: '#533afd',
     onAccent: '#ffffff',
     danger: '#ea2261',
-    series: ['#533afd', '#0891b2', '#059669', '#d97706', '#db2777', '#7c3aed', '#0284c7', '#65a30d'],
+    series: ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'],
   },
   dark: {
     bg: '#0a1929',
@@ -42,7 +42,7 @@ const PALETTE = {
     accent: '#7d6bff',
     onAccent: '#ffffff',
     danger: '#f96b8f',
-    series: ['#8b7bff', '#38bdf8', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#60a5fa', '#a3e635'],
+    series: ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'],
   },
 };
 

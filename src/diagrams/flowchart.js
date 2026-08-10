@@ -7,7 +7,7 @@
  * ===================================================================== */
 import {
   wrap, textWidth, esc, cleanLabel, cleanLines, plainLabel,
-  svgOpen, arrowDefs, textBlock, rect, line, path, polygon, chip, chipSize, uid, round, curveD,
+  svgOpen, arrowDefs, textBlock, rect, line, path, polygon, chip, chipSize, uid, round, curveD, userClass,
 } from './base.js';
 import { layered, tree, isTree, anchors, selfLoop } from './layout.js';
 import { inlineStyle } from './theme.js';
@@ -21,6 +21,7 @@ const SHAPES = [
   [/^\[\\(.*)\\\]$/s, 'parallelogram'],
   [/^\{(.*)\}$/s, 'diamond'],
   [/^\[(.*)\]$/s, 'rect'],
+  [/^\(\[(.*)\]\)$/s, 'round'],
   [/^\((.*)\)$/s, 'round'],
   [/^>(.*)\]$/s, 'flag'],
 ];
@@ -108,21 +109,37 @@ function drawShape(shape, p, cls = 'dg-shape', style = null) {
 
 const LINK = /\s*(-{2,}>|-{3,}|-\.-+>|-\.-+|={2,}>|={3,}|--o|--x|<-->)\s*(?:\|([^|]*)\||"([^"]*)")?\s*/;
 
+function splitNodeClasses(raw) {
+  const classes = [];
+  let body = String(raw ?? '').trim();
+  /* `A[文字]:::entry:::wide` 是 Mermaid 的节点级 class 简写。必须先剥掉，
+     否则整个 `[文字]:::entry` 都匹配不到 SHAPES，节点就只剩一个 A。 */
+  let match;
+  while ((match = /\s*:::\s*([A-Za-z0-9_-]+)\s*$/.exec(body))) {
+    classes.unshift(match[1]);
+    body = body.slice(0, match.index).trim();
+  }
+  return { body, classes };
+}
+
 function parseNodeToken(tok, isState) {
-  const t = tok.trim();
+  const split = splitNodeClasses(tok);
+  const t = split.body;
   if (!t) return null;
-  if (isState && (t === '[*]' || t === '[ * ]')) return { id: '__start__', label: '', shape: 'terminal' };
+  if (isState && (t === '[*]' || t === '[ * ]')) {
+    return { id: '__start__', label: '', shape: 'terminal', classes: split.classes };
+  }
 
   const m = /^([A-Za-z0-9_一-鿿぀-ヿ.·-]+)\s*([\s\S]*)$/.exec(t);
   if (!m) return null;
   const id = m[1];
   const rest = (m[2] || '').trim();
-  if (!rest) return { id, label: id, shape: 'rect' };
+  if (!rest) return { id, label: id, shape: 'rect', classes: split.classes };
   for (const [re, shape] of SHAPES) {
     const sm = re.exec(rest);
-    if (sm) return { id, label: cleanLabel(sm[1]), shape };
+    if (sm) return { id, label: cleanLabel(sm[1]), shape, classes: split.classes };
   }
-  return { id, label: id, shape: 'rect' };
+  return { id, label: id, shape: 'rect', classes: split.classes };
 }
 
 export function parse(src, kind) {
@@ -142,6 +159,8 @@ export function parse(src, kind) {
   const stack = [];
   const nodeOwners = new Map();
   const directStyles = new Map();
+  const classDefs = new Map();
+  const classAssignments = new Map();
   let terminalSeq = 0;
 
   /* subgraph 既是容器，也可以直接作为连线端点。先收集全部 ID，避免后面的
@@ -166,6 +185,13 @@ export function parse(src, kind) {
     }
   };
 
+  const assignClasses = (id, names) => {
+    if (!names?.length) return;
+    const current = classAssignments.get(id) || [];
+    names.forEach((name) => { if (name && !current.includes(name)) current.push(name); });
+    classAssignments.set(id, current);
+  };
+
   const ensure = (def) => {
     if (!def) return null;
     if (def.shape === 'terminal') {
@@ -173,6 +199,7 @@ export function parse(src, kind) {
       const n = { id, label: '', shape: 'terminal', w: 20, h: 20, lines: [] };
       nodes.set(id, n);
       order.push(id);
+      assignClasses(id, def.classes);
       own(id);
       return n;
     }
@@ -185,6 +212,7 @@ export function parse(src, kind) {
       const cur = nodes.get(def.id);
       if (cur.label === def.id) Object.assign(cur, { label: def.label, shape: def.shape }, nodeSize(def.label, def.shape));
     }
+    assignClasses(def.id, def.classes);
     return nodes.get(def.id);
   };
 
@@ -227,7 +255,20 @@ export function parse(src, kind) {
       }
       continue;
     }
-    if (/^(classDef|class|linkStyle|click|note|state\s+\w+\s*\{)/i.test(ln)) continue;
+    const classDef = /^classDef\s+([A-Za-z0-9_-]+)\s+(.+)$/i.exec(ln);
+    if (classDef) {
+      const parsed = parseDirectStyle(classDef[2]);
+      if (Object.keys(parsed).length) classDefs.set(classDef[1], parsed);
+      continue;
+    }
+    const classLine = /^class\s+([^\s]+)\s+(.+)$/i.exec(ln);
+    if (classLine) {
+      const names = classLine[2].split(',').map((name) => name.trim()).filter(Boolean);
+      classLine[1].split(',').map((id) => id.trim()).filter(Boolean)
+        .forEach((id) => assignClasses(id, names));
+      continue;
+    }
+    if (/^(linkStyle|click|note|state\s+\w+\s*\{)/i.test(ln)) continue;
 
     let tailLabel = '';
     if (isState) {
@@ -271,10 +312,17 @@ export function parse(src, kind) {
     group.members = group.members.filter((id) => groupIds.has(id) || nodeOwners.get(id) === group.id);
   });
   const styles = new Map();
-  directStyles.forEach((style, id) => {
-    if (groupIds.has(id) || nodes.has(id)) styles.set(id, style);
+  const classes = new Map();
+  classAssignments.forEach((names, id) => {
+    if (!groupIds.has(id) && !nodes.has(id)) return;
+    classes.set(id, names.slice());
+    const inherited = names.reduce((all, name) => ({ ...all, ...(classDefs.get(name) || {}) }), {});
+    if (Object.keys(inherited).length) styles.set(id, inherited);
   });
-  return { dir, nodes, order, edges, groups, nodeOwners, styles };
+  directStyles.forEach((style, id) => {
+    if (groupIds.has(id) || nodes.has(id)) styles.set(id, { ...(styles.get(id) || {}), ...style });
+  });
+  return { dir, nodes, order, edges, groups, nodeOwners, styles, classes, classDefs };
 }
 
 function directionOf(dir) {
@@ -491,6 +539,10 @@ function endpointBox(L, id) {
   return frame ? { x: frame.x0, y: frame.y0, w: frame.x1 - frame.x0, h: frame.y1 - frame.y0 } : null;
 }
 
+function authoredClasses(g, id) {
+  return (g.classes?.get(id) || []).map(userClass).filter(Boolean).join(' ');
+}
+
 function renderLaidOut(g, L, kind) {
   const placedLabels = [];
   const labelPos = new Map();
@@ -553,7 +605,9 @@ function renderLaidOut(g, L, kind) {
   for (const f of L.frames || []) {
     const group = groupById.get(f.id);
     const authored = g.styles?.get(f.id);
-    out.push(rect(f.x0, f.y0, f.x1 - f.x0, f.y1 - f.y0, 10, 'dg-group', styleExtra(authored)));
+    const authoredClass = authoredClasses(g, f.id);
+    out.push(rect(f.x0, f.y0, f.x1 - f.x0, f.y1 - f.y0, 10,
+      `dg-group${authoredClass ? ` ${authoredClass}` : ''}`, styleExtra(authored)));
     out.push(`<text x="${round(f.x0 + 14)}" y="${round(f.y0 + 22)}" class="dg-group-title" text-anchor="start" ${styleExtra(authored, 'text')}>${esc(group ? group.title : '')}</text>`);
   }
 
@@ -592,7 +646,8 @@ function renderLaidOut(g, L, kind) {
     const p = L.pos.get(nid); const n = g.nodes.get(nid);
     if (!p || !n) continue;
     const authored = g.styles?.get(nid);
-    out.push(drawShape(n.shape, p, 'dg-shape', authored));
+    const authoredClass = authoredClasses(g, nid);
+    out.push(drawShape(n.shape, p, `dg-shape${authoredClass ? ` ${authoredClass}` : ''}`, authored));
     if (n.lines?.length && n.shape !== 'terminal') {
       out.push(textBlock(p.x + p.w / 2, p.y + p.h / 2, n.lines, 'dg-text', 18,
         styleExtra(authored, 'text')));

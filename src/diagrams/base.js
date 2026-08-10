@@ -71,11 +71,21 @@ export function cleanLabel(s) {
     .replace(/<(b|strong)>/gi, '**')
     .replace(/<\/(b|strong)>/gi, '**')
     .replace(/<[^>]*>/g, '')
+    /* Mermaid 文档经常用 &#123; / &#91; 避开节点定界符。数字实体要在
+       &amp; 之前解码，否则真正写成 &amp;#123; 的正文会被误解两次。 */
+    .replace(/&#(\d+);/g, (_, code) => decodeEntityCode(code, 10))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => decodeEntityCode(code, 16))
     .replace(/&nbsp;/gi, ' ')
     .replace(/&quot;/gi, '"')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&amp;/gi, '&');
+}
+
+function decodeEntityCode(code, radix) {
+  const point = parseInt(code, radix);
+  try { return Number.isFinite(point) ? String.fromCodePoint(point) : ''; }
+  catch (e) { return ''; }
 }
 
 /** 去掉内部加粗标记，供宽度估算和纯文本场景使用。 */
@@ -188,9 +198,22 @@ export function chip(cx, cy, label, cls = 'dg-chip') {
     + textBlock(cx, cy, size.lines, `${cls}-text`, 16);
 }
 
-/** 系列色。索引取模，保证同一张图里颜色不重复得太快。 */
+/**
+ * 系列色只使用固定的八个身份槽，不循环复用：第九项折叠到最后的兜底槽，
+ * 避免两项看起来像同一个系列。数据型图表在此之外还应显示直接标签或图例。
+ */
 export function seriesClass(i) {
-  return `dg-s${i % 8}`;
+  const slot = Math.max(0, Math.min(7, Number.isFinite(Number(i)) ? Math.floor(Number(i)) : 0));
+  return `dg-s${slot}`;
+}
+
+/**
+ * 把用户写进图表的 CSS 类名变成只含安全字符的内部类名。
+ * 加 dg-user- 前缀，避免 entry / text 之类名字撞到 Docsmith 自己的样式。
+ */
+export function userClass(name) {
+  const safe = String(name ?? '').trim().replace(/[^A-Za-z0-9_-]/g, '_');
+  return safe ? `dg-user-${safe}` : '';
 }
 
 /* ============================================== 错误 */

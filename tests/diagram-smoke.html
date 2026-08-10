@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docsmith Mermaid smoke</title>
+<link rel="stylesheet" href="../src/core/tokens.css">
+<link rel="stylesheet" href="../src/diagrams/diagrams.css">
+<style>
+  body { margin: 0; padding: 24px; background: #fff; }
+  #diagram { width: min(1100px, 100%); margin: 0 auto; }
+</style>
+</head>
+<body>
+<div id="diagram">正在画图…</div>
+<script src="../src/vendor/elk.bundled.js"></script>
+<script type="module">
+import { renderDiagram } from '../src/diagrams/index.js';
+const source = `flowchart TD
+    A(["美信群消息到达"]):::entry
+    A --> B{"is_skill_only_group(group_id)?"}:::decision
+    B -->|"命中白名单"| C["handle_skill_only_group<br/>query / group_id / user_id"]:::skill
+    B -->|"未命中"| D(["原有 LangGraph 流程"]):::legacy
+    C --> E["_load_skill_history<br/>读 graph checkpointer 多轮历史"]:::proc
+    E --> F["_call_skill_or_fallback<br/>execute_configured_skill(mip_code=user_id)"]:::proc
+    F --> G["POST /skills/&#123;id&#125;/execute<br/>token + mipCode + history"]:::api
+    G --> H{"Skill 执行结果"}:::decision
+    H -->|命中| I["清洗答案 + 持久化 completed=True"]:::proc
+    H -->|未命中| J["持久化 completed=True, answers=&#91;&#93;"]:::proc
+    H -->|异常| K["持久化 completed=False + 兜底文案"]:::proc
+    I --> L["_format_skill_reply<br/>&#123;query&#125; + 空行 + &#123;answer&#125;"]:::proc
+    J --> L
+    K --> L
+    L --> M(["发送群回复"]):::result
+    C -.->|"Skill 未启用或 checkpointer 未配置, 返回 None"| D
+    classDef entry fill:#2563eb,color:#fff,stroke:#1d4ed8,stroke-width:2px
+    classDef skill fill:#7c3aed,color:#fff,stroke:#6d28d9
+    classDef legacy fill:#6b7280,color:#fff,stroke:#4b5563
+    classDef proc fill:#059669,color:#fff,stroke:#047857
+    classDef api fill:#db2777,color:#fff,stroke:#be185d
+    classDef decision fill:#f59e0b,color:#1f2937,stroke:#d97706
+    classDef result fill:#10b981,color:#fff,stroke:#059669`;
+try {
+  document.querySelector('#diagram').innerHTML = await renderDiagram(source);
+  document.body.dataset.rendered = 'true';
+} catch (error) {
+  document.querySelector('#diagram').textContent = error.stack || error.message;
+  document.body.dataset.rendered = 'error';
+}
+</script>
+</body>
+</html>

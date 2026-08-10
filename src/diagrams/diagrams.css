@@ -11,13 +11,13 @@
     display: block;
     margin: 0 auto;
     font-family: var(--sans, system-ui, sans-serif);
-    --dg-s0: #533afd; --dg-s1: #0891b2; --dg-s2: #059669; --dg-s3: #d97706;
-    --dg-s4: #db2777; --dg-s5: #7c3aed; --dg-s6: #0284c7; --dg-s7: #65a30d;
+    --dg-s0: #2a78d6; --dg-s1: #eb6834; --dg-s2: #1baf7a; --dg-s3: #eda100;
+    --dg-s4: #e87ba4; --dg-s5: #008300; --dg-s6: #4a3aa7; --dg-s7: #e34948;
 }
 
 [data-theme="dark"] .dg {
-    --dg-s0: #8b7bff; --dg-s1: #38bdf8; --dg-s2: #34d399; --dg-s3: #fbbf24;
-    --dg-s4: #f472b6; --dg-s5: #a78bfa; --dg-s6: #60a5fa; --dg-s7: #a3e635;
+    --dg-s0: #3987e5; --dg-s1: #d95926; --dg-s2: #199e70; --dg-s3: #c98500;
+    --dg-s4: #d55181; --dg-s5: #008300; --dg-s6: #9085e9; --dg-s7: #e66767;
 }
 
 .dg-s0 { --c: var(--dg-s0); } .dg-s1 { --c: var(--dg-s1); }
