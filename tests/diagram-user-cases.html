@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docsmith Mermaid user cases</title>
+<link rel="stylesheet" href="../src/core/tokens.css">
+<link rel="stylesheet" href="../src/diagrams/diagrams.css">
+<style>
+  body { margin: 0; padding: 24px; background: #fff; }
+  main { display: grid; gap: 40px; }
+  figure { margin: 0; padding: 16px; border: 1px solid #e3e8ee; }
+  figcaption { margin-bottom: 12px; font: 600 14px system-ui; color: #425466; }
+  .diagram { overflow: auto; }
+</style>
+</head>
+<body>
+<main></main>
+<script src="../src/vendor/elk.bundled.js"></script>
+<script type="module">
+import { renderDiagram } from '../src/diagrams/index.js';
+const cases = [
+  `flowchart LR
+    H2["<b>H2 质量</b><br/>方案敢不敢用"] -->|"不成立则<br/>全盘归零"| H1["<b>H1 效率</b><br/>快不快"]
+    H1 -->|"不成立则<br/>无商业价值"| H3["<b>H3 门槛</b><br/>谁能用"]
+    H2 -.->|"先验证"| V["<b>验证顺序<br/>H2 → H1 → H3</b>"]
+    style H2 fill:#ffe8e8,stroke:#d33,stroke-width:2px
+    style H1 fill:#fff4e0,stroke:#e89
+    style H3 fill:#e8f4ff,stroke:#39c
+    style V fill:#e8ffe8,stroke:#3a3`,
+  `stateDiagram-v2
+    [*] --> 项目初始化
+    项目初始化 --> 数据清洗 : 自动推进<br/>项目创建成功且与会话绑定
+    数据清洗 --> 现状分析 : <b>确认推进</b><br/>清洗达标 + 用户确认
+    现状分析 --> 选址建模 : <b>确认推进</b><br/>诊断完成 + 用户确认
+    选址建模 --> 方案确认 : 自动推进<br/>求解成功
+    方案确认 --> 报告生成 : <b>确认推进</b><br/>用户选定方案
+    报告生成 --> [*] : <b>确认推进</b><br/>用户确认报告
+
+    数据清洗 --> 数据清洗 : 阻断项未修复<br/>停留并定位到具体问题
+    选址建模 --> 数据清洗 : IDSS 校验失败<br/>回退至清洗/字段映射
+    选址建模 --> 选址建模 : 无可行解<br/>回参数确认并给建议
+    选址建模 --> 选址建模 : 参数变更<br/>生成新运行记录
+    方案确认 --> 选址建模 : 用户要求调参重跑
+    报告生成 --> 报告生成 : 生成失败<br/>保留旧版本并说明`,
+  `flowchart LR
+    subgraph SEQ["契约未定义 → 串行"]
+        A1["选址开发"] --> A2["选址完成"] --> A3["报告开发"]
+    end
+    subgraph PAR["契约冻结 → 并行"]
+        B0["<b>定义契约</b>"] --> B1["选址开发"]
+        B0 --> B2["报告开发<br/>（用契约造 mock 数据）"]
+        B1 --> B3["联调"]
+        B2 --> B3
+    end
+    style B0 fill:#e8ffe8,stroke:#3a3,stroke-width:2px`,
+];
+const main = document.querySelector('main');
+for (let i = 0; i < cases.length; i += 1) {
+  const figure = document.createElement('figure');
+  figure.innerHTML = `<figcaption>案例 ${i + 1}</figcaption><div class="diagram">正在画图…</div>`;
+  main.append(figure);
+  figure.querySelector('.diagram').innerHTML = await renderDiagram(cases[i]);
+}
+document.body.dataset.rendered = 'true';
+</script>
+</body>
+</html>

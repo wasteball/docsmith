@@ -59,6 +59,70 @@ assert.deepEqual(graph.styles.get('C'), { fill: '#7c3aed', color: '#fff', stroke
 assert.equal(cleanLabel('&amp;#123; &#123; &#x5b;'), '&#123; { [');
 assert.equal(seriesClass(8), 'dg-s7');
 
+const userFlowWithLabels = `flowchart LR
+  H2["<b>H2 质量</b><br/>方案敢不敢用"] -->|"不成立则<br/>全盘归零"| H1["<b>H1 效率</b><br/>快不快"]
+  H1 -->|"不成立则<br/>无商业价值"| H3["<b>H3 门槛</b><br/>谁能用"]
+  H2 -.->|"先验证"| V["<b>验证顺序<br/>H2 → H1 → H3</b>"]`;
+const userStateWithLoops = `stateDiagram-v2
+  [*] --> 项目初始化
+  项目初始化 --> 数据清洗 : 自动推进<br/>项目创建成功且与会话绑定
+  数据清洗 --> 现状分析 : <b>确认推进</b><br/>清洗达标 + 用户确认
+  现状分析 --> 选址建模 : <b>确认推进</b><br/>诊断完成 + 用户确认
+  选址建模 --> 方案确认 : 自动推进<br/>求解成功
+  方案确认 --> 报告生成 : <b>确认推进</b><br/>用户选定方案
+  报告生成 --> [*] : <b>确认推进</b><br/>用户确认报告
+  数据清洗 --> 数据清洗 : 阻断项未修复<br/>停留并定位到具体问题
+  选址建模 --> 选址建模 : 无可行解<br/>回参数确认并给建议
+  选址建模 --> 选址建模 : 参数变更<br/>生成新运行记录
+  报告生成 --> 报告生成 : 生成失败<br/>保留旧版本并说明`;
+const userParallelSubgraphs = `flowchart LR
+  subgraph SEQ["契约未定义 → 串行"]
+    A1["选址开发"] --> A2["选址完成"] --> A3["报告开发"]
+  end
+  subgraph PAR["契约冻结 → 并行"]
+    B0["<b>定义契约</b>"] --> B1["选址开发"]
+    B0 --> B2["报告开发<br/>（用契约造 mock 数据）"]
+    B1 --> B3["联调"]
+    B2 --> B3
+  end`;
+const userSubgraphEndpoints = `flowchart TB
+  subgraph EXT["对外：商业交付场景"]
+    E1["<b>用户</b>：方案组 / 售前专家"]
+    E2["<b>痛点</b>：客户需求排队，接不下来"]
+    E3["<b>价值</b>：承接量突破人力上限 → <b>收入</b>"]
+    E4["<b>质量要求</b>：极高<br/>方案直接发客户，错了丢单"]
+  end
+  subgraph INT["对内：自主决策场景"]
+    I1["<b>用户</b>：分公司仓网规划岗"]
+    I2["<b>痛点</b>：能力在总部，需求上交排队"]
+    I3["<b>价值</b>：自主完成标准场景 → <b>决策速度</b>"]
+    I4["<b>质量要求</b>：中<br/>内部决策，可迭代修正"]
+  end
+  EXT -.->|"优先级 P0<br/>直接创收"| P["产品设计<br/>取舍依据"]
+  INT -.->|"优先级 P1<br/>能力复用"| P`;
+const stateGraph = parseFlow(userStateWithLoops, 'state');
+assert.equal(stateGraph.edges.filter((edge) => edge.from === edge.to).length, 4);
+const parallelGraph = parseFlow(userParallelSubgraphs, 'flow');
+assert.equal(parallelGraph.groups.length, 2);
+assert.deepEqual(parallelGraph.groups.map((group) => group.title), ['契约未定义 → 串行', '契约冻结 → 并行']);
+const endpointGraph = parseFlow(userSubgraphEndpoints, 'flow');
+assert.deepEqual(endpointGraph.edges.map(({ from, to }) => ({ from, to })), [
+  { from: 'EXT', to: 'P' }, { from: 'INT', to: 'P' },
+]);
+
+const labelledFlowSvg = await renderDiagram(userFlowWithLabels);
+const labelledFlowWidth = Number(/viewBox="0 0 ([\d.]+)/.exec(labelledFlowSvg)?.[1]);
+assert.ok(labelledFlowWidth < 640, `边标签不应把简单流程图撑宽：${labelledFlowWidth}`);
+const nodeBoxes = [...labelledFlowSvg.matchAll(/<rect x="([\d.-]+)" y="([\d.-]+)" width="([\d.-]+)" height="([\d.-]+)" rx="[^\"]+" class="dg-shape/g)]
+  .map((match) => match.slice(1, 5).map(Number));
+const chipBoxes = [...labelledFlowSvg.matchAll(/<rect x="([\d.-]+)" y="([\d.-]+)" width="([\d.-]+)" height="([\d.-]+)" rx="5" class="dg-chip-bg/g)]
+  .map((match) => match.slice(1, 5).map(Number));
+const overlaps = ([ax, ay, aw, ah], [bx, by, bw, bh]) => ax < bx + bw && ax + aw > bx
+  && ay < by + bh && ay + ah > by;
+assert.equal(chipBoxes.length, 3);
+assert.equal(chipBoxes.some((chipBox) => nodeBoxes.some((nodeBox) => overlaps(chipBox, nodeBox))), false);
+assert.ok(chipBoxes.every(([x]) => x > 140), '边标签应位于节点之间，而不是被推到图左侧');
+
 const svg = await renderDiagram(suppliedFlowchart);
 assert.match(svg, /viewBox="0 0 \d+ \d+"/);
 assert.match(svg, />美信群消息到达<\/text>/);

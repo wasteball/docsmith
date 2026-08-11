@@ -390,7 +390,9 @@ function buildElkGraph(g, kind) {
         layoutOptions: { 'elk.edgeLabels.placement': 'CENTER' } }] : undefined };
   };
 
-  g.edges.filter((edge) => isState || edge.from !== edge.to).forEach((edge) => {
+  /* 自环交给绘制层绕节点排布。让 ELK 参与自环路由会把每一层都撑高，
+     一个状态图里只要有几个异常分支，主流程就会被拉成几屏高。 */
+  g.edges.filter((edge) => edge.from !== edge.to).forEach((edge) => {
     edgeBuckets.get(hierarchy.commonContainer(edge.from, edge.to)).push(edgeItem(edge));
   });
   layoutOnlyEdges(g, hierarchy).forEach((edge) => edgeBuckets.get(edge.container).push(edgeItem(edge)));
@@ -431,14 +433,14 @@ function buildElkGraph(g, kind) {
     'elk.direction': directionOf(g.dir),
     'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
     'elk.edgeRouting': 'ORTHOGONAL',
-    'elk.spacing.nodeNode': isState ? '54' : '42',
-    'elk.layered.spacing.nodeNodeBetweenLayers': isState ? '104' : '72',
-    'elk.spacing.edgeNode': isState ? '34' : '24',
-    'elk.spacing.edgeEdge': isState ? '22' : '14',
-    'elk.spacing.edgeLabel': isState ? '16' : '10',
-    'elk.spacing.nodeSelfLoop': isState ? '34' : '18',
-    'elk.layered.spacing.edgeNodeBetweenLayers': isState ? '32' : '24',
-    'elk.layered.spacing.edgeEdgeBetweenLayers': isState ? '22' : '14',
+    'elk.spacing.nodeNode': isState ? '46' : '42',
+    'elk.layered.spacing.nodeNodeBetweenLayers': isState ? '48' : '72',
+    'elk.spacing.edgeNode': isState ? '28' : '24',
+    'elk.spacing.edgeEdge': isState ? '18' : '14',
+    'elk.spacing.edgeLabel': isState ? '12' : '10',
+    'elk.spacing.nodeSelfLoop': isState ? '24' : '18',
+    'elk.layered.spacing.edgeNodeBetweenLayers': isState ? '24' : '24',
+    'elk.layered.spacing.edgeEdgeBetweenLayers': isState ? '18' : '14',
     'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
     'elk.layered.crossingMinimization.greedySwitch.type': 'TWO_SIDED',
     'elk.layered.cycleBreaking.strategy': 'GREEDY_MODEL_ORDER',
@@ -465,14 +467,17 @@ function buildElkGraph(g, kind) {
   };
 }
 
-function collectElk(node, ox, oy, pos, frames, routes, labels) {
+function collectElk(node, ox, oy, pos, frames, routes, labels, parentId = 'root') {
   const x = ox + (node.x || 0);
   const y = oy + (node.y || 0);
   if (node.id && node.id !== 'root' && node.children) {
-    frames.push({ id: node.id, x0: x, y0: y, x1: x + (node.width || 0), y1: y + (node.height || 0) });
+    frames.push({ id: node.id, parentId, x0: x, y0: y,
+      x1: x + (node.width || 0), y1: y + (node.height || 0) });
   }
-  if (node.children) node.children.forEach((child) => collectElk(child, x, y, pos, frames, routes, labels));
-  else if (node.id) pos.set(node.id, { x, y, w: node.width || 0, h: node.height || 0 });
+  const childParent = node.id && node.id !== 'root' && node.children ? node.id : parentId;
+  if (node.children) {
+    node.children.forEach((child) => collectElk(child, x, y, pos, frames, routes, labels, childParent));
+  } else if (node.id) pos.set(node.id, { x, y, w: node.width || 0, h: node.height || 0 });
 
   (node.edges || []).forEach((edge) => {
     const sections = (edge.sections || []).map((section) =>
@@ -539,13 +544,78 @@ function endpointBox(L, id) {
   return frame ? { x: frame.x0, y: frame.y0, w: frame.x1 - frame.x0, h: frame.y1 - frame.y0 } : null;
 }
 
+function stateSelfLoopGeometry(p, index = 0) {
+  const side = index % 2 ? -1 : 1;
+  const spread = 34 + Math.floor(index / 2) * 22;
+  const x = side > 0 ? p.x + p.w : p.x;
+  const y1 = p.y + p.h * 0.28;
+  const y2 = p.y + p.h * 0.72;
+  const outer = x + side * spread;
+  return {
+    d: `M${round(x)} ${round(y1)} C${round(outer)} ${round(y1 - 10)}, ${round(outer)} ${round(y2 + 10)}, ${round(x)} ${round(y2)}`,
+    label: { x: outer + side * 10, y: p.y + p.h / 2 },
+  };
+}
+
 function authoredClasses(g, id) {
   return (g.classes?.get(id) || []).map(userClass).filter(Boolean).join(' ');
+}
+
+function boxesOverlap(a, b, gap = 0) {
+  return a.x < b.x + b.w + gap && a.x + a.w + gap > b.x
+    && a.y < b.y + b.h + gap && a.y + a.h + gap > b.y;
+}
+
+function labelObstacleBoxes(L, edge) {
+  const boxes = [];
+  L.pos.forEach((p) => {
+    /* 边标签也不能覆盖自己的起止节点。ELK 对自环和回退边给出的建议位置
+       有时贴着节点中心，若把端点排除，碰撞检查就看不见最明显的遮挡。 */
+    boxes.push({ x: p.x, y: p.y, w: p.w, h: p.h });
+  });
+  (L.frames || []).forEach((frame) => {
+    /* 子图标题占据容器顶边。标签不能压在标题上；框体其余部分是可用画布，
+       不能把整块 frame 都当障碍，否则容器里的边永远找不到落点。 */
+    boxes.push({ x: frame.x0 + 8, y: frame.y0 + 6,
+      w: Math.max(0, frame.x1 - frame.x0 - 16), h: 24 });
+  });
+  return boxes;
+}
+
+function candidateLabelPoints(preferred, points, size) {
+  const out = [preferred];
+  if (points.length > 1) {
+    for (let i = 1; i < points.length; i += 1) {
+      const a = points[i - 1]; const b = points[i];
+      const dx = b.x - a.x; const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy);
+      if (len < Math.min(size.w, size.h) + 12) continue;
+      out.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+      const horizontal = Math.abs(dx) >= Math.abs(dy);
+      const offset = horizontal ? size.h / 2 + 8 : size.w / 2 + 8;
+      if (horizontal) {
+        out.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - offset });
+        out.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 + offset });
+      } else {
+        out.push({ x: (a.x + b.x) / 2 - offset, y: (a.y + b.y) / 2 });
+        out.push({ x: (a.x + b.x) / 2 + offset, y: (a.y + b.y) / 2 });
+      }
+    }
+  }
+  return out;
 }
 
 function renderLaidOut(g, L, kind) {
   const placedLabels = [];
   const labelPos = new Map();
+  const selfLoopIndex = new Map();
+  const loopsPerNode = new Map();
+  g.edges.forEach((edge) => {
+    if (edge.from !== edge.to) return;
+    const index = loopsPerNode.get(edge.from) || 0;
+    selfLoopIndex.set(edge.id, index);
+    loopsPerNode.set(edge.from, index + 1);
+  });
   let padLeft = 0; let padTop = 0; let padRight = 0; let padBottom = 0;
   for (const e of g.edges) {
     if (!e.label) continue;
@@ -555,10 +625,22 @@ function renderLaidOut(g, L, kind) {
     const points = sections.flat();
     const a = endpointBox(L, e.from); const b = endpointBox(L, e.to);
     const elkPlaced = L.labels && L.labels.has(e.id);
-    let preferred = elkPlaced ? L.labels.get(e.id) : null;
+    /* 状态图的主流程边默认把说明放到线的左侧：主轴保持干净，读者可以从上
+       到下先扫状态，再按需读取推进条件。回退边与自环仍保留 ELK/自环位置。 */
+    let preferred = null;
+    if (kind === 'state' && e.from !== e.to && points.length > 1) {
+      const start = points[0]; const end = points[points.length - 1];
+      const nearMainAxis = Math.abs(end.x - start.x) < Math.max(28, size.w * 0.35)
+        && end.y > start.y;
+      if (nearMainAxis) {
+        const middle = midpointOf(points);
+        preferred = { x: Math.min(start.x, end.x) - size.w / 2 - 18, y: middle.y };
+      }
+    }
+    if (!preferred && elkPlaced) preferred = L.labels.get(e.id);
     if (!preferred && points.length > 1) preferred = midpointOf(points);
     if (!preferred && a && b) {
-      if (e.from === e.to) preferred = { x: a.x + a.w + 30, y: a.y + a.h * 0.3 + 6 };
+      if (e.from === e.to) preferred = stateSelfLoopGeometry(a, selfLoopIndex.get(e.id) || 0).label;
       else {
         const horizontal = g.dir === 'LR' || g.dir === 'RL';
         const pt = anchors(a, b, !horizontal);
@@ -566,19 +648,41 @@ function renderLaidOut(g, L, kind) {
         preferred = { x: cv.mx, y: cv.my };
       }
     }
+    /* 没有 ELK 路由的简单图由本地布局器负责。其边标签应像 Mermaid 一样位于
+       两个 rank 之间，而不是严格压在曲线上；斜线尤其要把标签放到节点间隙。 */
+    if (!elkPlaced && e.from !== e.to && a && b) {
+      const horizontal = g.dir === 'LR' || g.dir === 'RL';
+      preferred = horizontal
+        ? { x: (a.x + a.w + b.x) / 2, y: (a.y + a.h / 2 + b.y + b.h / 2) / 2 }
+        : { x: (a.x + a.w / 2 + b.x + b.w / 2) / 2, y: (a.y + a.h + b.y) / 2 };
+    }
     if (!preferred) preferred = { x: L.width / 2, y: L.height / 2 };
     let cx = preferred.x; let cy = preferred.y;
-    const overlaps = (x, y) => placedLabels.some((p) => Math.abs(p.x - x) < (p.w + size.w) / 2 + 8
-      && Math.abs(p.y - y) < (p.h + size.h) / 2 + 6);
-    if (!elkPlaced && overlaps(cx, cy)) {
-      const vertical = points.length > 1
-        ? Math.abs(points[points.length - 1].y - points[0].y) >= Math.abs(points[points.length - 1].x - points[0].x)
-        : true;
-      for (let step = 1; step <= 8; step += 1) {
-        const delta = step * (vertical ? size.w + 12 : size.h + 10);
-        const tries = vertical ? [[cx - delta, cy], [cx + delta, cy]] : [[cx, cy - delta], [cx, cy + delta]];
-        const free = tries.find((p) => !overlaps(p[0], p[1]));
-        if (free) { cx = free[0]; cy = free[1]; break; }
+    const obstacles = labelObstacleBoxes(L, e);
+    const occupied = (x, y) => {
+      const box = { x: x - size.w / 2, y: y - size.h / 2, w: size.w, h: size.h };
+      return placedLabels.some((placed) => boxesOverlap(box,
+        { x: placed.x - placed.w / 2, y: placed.y - placed.h / 2, w: placed.w, h: placed.h }, 8))
+        || obstacles.some((obstacle) => boxesOverlap(box, obstacle, 6));
+    };
+    /* ELK 的标签位置只是建议。复杂图里它偶尔会把 chip 放到节点或子图标题上，
+       所以无论位置来自 ELK 还是本地中点，都统一做一次碰撞检查。优先沿真实路由
+       的长线段寻找落点；找不到才在原点附近细步移动，避免标签被甩到图的外侧。 */
+    if (occupied(cx, cy)) {
+      const candidates = candidateLabelPoints(preferred, points, size);
+      const free = candidates.find((candidate) => !occupied(candidate.x, candidate.y));
+      if (free) { cx = free.x; cy = free.y; }
+      else {
+        const vertical = points.length > 1
+          ? Math.abs(points[points.length - 1].y - points[0].y) >= Math.abs(points[points.length - 1].x - points[0].x)
+          : true;
+        const stepSize = 10;
+        for (let step = 1; step <= 18; step += 1) {
+          const delta = step * stepSize;
+          const tries = vertical ? [[cx - delta, cy], [cx + delta, cy]] : [[cx, cy - delta], [cx, cy + delta]];
+          const shifted = tries.find((point) => !occupied(point[0], point[1]));
+          if (shifted) { cx = shifted[0]; cy = shifted[1]; break; }
+        }
       }
     }
     placedLabels.push({ x: cx, y: cy, w: size.w, h: size.h });
@@ -631,8 +735,11 @@ function renderLaidOut(g, L, kind) {
         chips.push(chip(m.x, m.y, e.label));
       }
     } else if (e.from === e.to) {
-      out.push(path(selfLoop(a), cls, marker));
-      if (e.label) { const m = labelPos.get(e.id) || { x: a.x + a.w + 30, y: a.y + a.h * 0.3 + 6 }; chips.push(chip(m.x, m.y, e.label)); }
+      const loop = kind === 'state'
+        ? stateSelfLoopGeometry(a, selfLoopIndex.get(e.id) || 0)
+        : { d: selfLoop(a), label: { x: a.x + a.w + 30, y: a.y + a.h * 0.3 + 6 } };
+      out.push(path(loop.d, cls, marker));
+      if (e.label) { const m = labelPos.get(e.id) || loop.label; chips.push(chip(m.x, m.y, e.label)); }
     } else {
       const horizontal = g.dir === 'LR' || g.dir === 'RL';
       const pt = anchors(a, b, !horizontal); const cv = curveD(pt.x1, pt.y1, pt.x2, pt.y2, horizontal);
@@ -676,8 +783,18 @@ function fallbackLayout(g) {
     from: mapEndpoint(edge.from, true), to: mapEndpoint(edge.to, false) }));
 
   const useTree = !g.groups.length && isTree(g.order, mappedEdges);
-  const L = useTree ? tree(g.nodes, g.order, mappedEdges, { dir: g.dir })
-    : layered(g.nodes, g.order, mappedEdges, { dir: g.dir });
+  const horizontal = g.dir === 'LR' || g.dir === 'RL';
+  const labelled = mappedEdges.filter((edge) => edge.label).map((edge) => chipSize(edge.label));
+  /* Mermaid/Dagre 会把边标签参与 rank 间距计算，标签因此位于两个节点之间。
+     本地树布局以前只按固定 58px 留层间距，标签稍宽就无处可放，碰撞处理只能
+     把它推到整张图外侧。按标签的真实尺寸扩层，标签仍贴着所属连线且不挡节点。 */
+  const labelGap = labelled.length
+    ? Math.max(...labelled.map((size) => (horizontal ? size.w : size.h))) + 24
+    : 58;
+  const L = useTree ? tree(g.nodes, g.order, mappedEdges, { dir: g.dir, gapLevel: Math.max(58, labelGap) })
+    : layered(g.nodes, g.order, mappedEdges, { dir: g.dir,
+      gapX: horizontal ? Math.max(46, labelGap) : 46,
+      gapY: horizontal ? 62 : Math.max(62, labelGap) });
   const frames = [];
   for (const group of g.groups) {
     const ps = leavesOf(group.id).map((n) => L.pos.get(n)).filter(Boolean);

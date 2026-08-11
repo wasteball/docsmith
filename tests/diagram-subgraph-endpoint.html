@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docsmith subgraph endpoint regression</title>
+<link rel="stylesheet" href="../src/core/tokens.css">
+<link rel="stylesheet" href="../src/diagrams/diagrams.css">
+<style>
+  body { margin: 0; padding: 24px; background: #fff; }
+  #diagram { width: min(1200px, 100%); margin: 0 auto; }
+</style>
+</head>
+<body>
+<div id="diagram">正在画图…</div>
+<script src="../src/vendor/elk.bundled.js"></script>
+<script type="module">
+import { renderDiagram } from '../src/diagrams/index.js';
+const source = `flowchart TB
+    subgraph EXT["对外：商业交付场景"]
+        E1["<b>用户</b>：方案组 / 售前专家"]
+        E2["<b>痛点</b>：客户需求排队，接不下来"]
+        E3["<b>价值</b>：承接量突破人力上限 → <b>收入</b>"]
+        E4["<b>质量要求</b>：极高<br/>方案直接发客户，错了丢单"]
+    end
+    subgraph INT["对内：自主决策场景"]
+        I1["<b>用户</b>：分公司仓网规划岗"]
+        I2["<b>痛点</b>：能力在总部，需求上交排队"]
+        I3["<b>价值</b>：自主完成标准场景 → <b>决策速度</b>"]
+        I4["<b>质量要求</b>：中<br/>内部决策，可迭代修正"]
+    end
+    EXT -.->|"优先级 P0<br/>直接创收"| P["产品设计<br/>取舍依据"]
+    INT -.->|"优先级 P1<br/>能力复用"| P
+    style EXT fill:#e8f4ff,stroke:#39c
+    style INT fill:#f0f0f0,stroke:#999
+    style P fill:#fff4e0,stroke:#e89`;
+try {
+  document.querySelector('#diagram').innerHTML = await renderDiagram(source);
+  document.body.dataset.rendered = 'true';
+} catch (error) {
+  document.querySelector('#diagram').textContent = error.stack || error.message;
+  document.body.dataset.rendered = 'error';
+}
+</script>
+</body>
+</html>

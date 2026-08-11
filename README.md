@@ -18,7 +18,7 @@ Markdown 已经成为 AI 时代文档的事实标准 —— 你让 AI 写方案�
 
 [![License: MIT](https://img.shields.io/badge/协议-MIT%20免费-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Chrome](https://img.shields.io/badge/浏览器-Chrome%20%2F%20Edge-blue)
-![Version](https://img.shields.io/badge/当前版本-1.14.0-brightgreen)
+![Version](https://img.shields.io/badge/当前版本-1.14.1-brightgreen)
 
 [核心优势](#核心优势) | [功能](#还有这些) | [安装](#安装五分钟) | [上手](#上手三十秒) | [隐私](#隐私)
 
@@ -115,13 +115,13 @@ Windows 用 `Ctrl`，Mac 用 `⌘`；设置里的「快捷键」会按你的系�
 
 ## 走到哪儿了
 
-当前 **1.14.0**，完整记录见 [改动记录](docs/CHANGELOG.md)（不光写改了什么，还写**为什么不走另一条路**）。
+当前 **1.14.1**，完整记录见 [改动记录](docs/CHANGELOG.md)（不光写改了什么，还写**为什么不走另一条路**）。
 
 - **1.6–1.8** 卡片逐页精编、参数记忆、格式按钮、拖拽排序；界面字体返修
 - **1.9–1.10** 重新载入文件夹、平滑滚动；卡片改成左右双栏，改一句右边马上变
 - **1.11** **评审闭环成型**：记意见 → 改 → 核对 → 标已解决，关掉重开还能接着评
 - **1.12–1.13** 复杂流程图重做布局，中文不再被边框截断；图表按结构自动挑布局，源码写死的颜色也会保留
-- **1.14** AntV Infographic 信息图可以直接显示，支持放大、复制和导出，断网也能用
+- **1.14** AntV Infographic 信息图可以直接显示；流程图边标签、状态回路和复合子图布局继续修正
 
 ## 给想自己改的朋友
 
