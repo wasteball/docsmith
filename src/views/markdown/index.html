@@ -223,10 +223,10 @@
 
 <!-- 第三方组件。某个文件没下下来也不会中断页面，对应功能会自动隐藏。
 
-     这里刻意**没有** mermaid.min.js：画图走 src/diagrams/ 自带的解析与 SVG 引擎，
-     复杂流程图的布局交给下面的 ELK（diagram-boot.js 再装成 window.mermaid）。
-     完整版 mermaid 体积更大，
-     没必要随包附带。也刻意没有 html2pdf.bundle.min.js：导出 PDF 现在走
+     Mermaid 11.16.1 与 AntV Infographic 都固定为本地文件：断网能画、版本不会漂。
+     `mermaid` 围栏全部交给官方 Mermaid；src/diagrams/ 继续负责信息图与官方
+     运行时缺席时的兜底。diagram-boot.js 把两套渲染器接到同一入口。这里刻意没有 html2pdf.bundle.min.js：
+     导出 PDF 现在走
      「在真标签页里打开导出的网页，再交给浏览器打印」，见 workspace.js 的 exportPdf()。
      留着指向不存在文件的 <script> 只会每次打开都刷两条 404，
      把真正该看见的报错埋进噪音里 —— 所以删掉，而不是留着当占位。 -->
@@ -237,6 +237,10 @@
 <script src="../../vendor/docx.umd.js"></script>
 <!-- 固定的本地 AntV Infographic 0.2.19：信息图断网也能渲染，不走 CDN。 -->
 <script src="../../vendor/infographic.min.js"></script>
+<!-- 官方 Mermaid 11.16.1，本地固定版本。先把标准语法完整画出来；
+     diagram-boot.js 会把它接进 Docsmith 的统一图表入口，自研引擎仍负责
+     信息图和官方运行时缺席时的兜底。 -->
+<script src="../../vendor/mermaid.min.js"></script>
 
 <!-- 兜底：上面的组件缺席时，用自带的渲染器顶上，绝不白屏 -->
 <script src="../markdown/markdown-fallback.js"></script>

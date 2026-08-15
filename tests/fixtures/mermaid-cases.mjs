@@ -19,6 +19,41 @@ export const sequenceLongMessagesWithNotes = `sequenceDiagram
     A->>U: ⑨「好的，已收到您的反馈，我们转人工客服跟您核对地址，<br/>祝您生活愉快，再见。」
     Note right of A: 🔴 P0 无澄清轮，单轮误判直接挂机<br/>P1 与文档口径「话术应解释派送时核实地址」不一致`;
 
+export const sequenceAiOutboundCore = `sequenceDiagram
+    participant SCH as 任务调度
+    participant CMP as 合规管控
+    participant GW as 外呼网关
+    participant USR as 客户
+    participant ENG as 会话引擎
+    participant NLU as 语义理解
+    participant LLM as 大模型兜底
+    participant TAG as 结果打标
+
+    SCH->>CMP: 提交待拨号码
+    CMP->>CMP: 授权校验 时间窗 客户级频次 黑名单
+    CMP-->>SCH: 放行或拦截并记录拦截码
+    SCH->>GW: 发起呼叫
+    GW->>USR: 振铃
+    USR-->>GW: 接通
+    GW->>ENG: 接通事件 携带客户上下文
+    ENG->>USR: 播放预合成首句 190毫秒内
+    ENG->>USR: 流式播报变量部分
+    USR-->>ENG: 用户话语音频流
+    ENG->>NLU: 增量文本与上下文
+    NLU-->>ENG: 意图 置信度 槽位
+    alt 置信度高于阈值
+        ENG->>ENG: 按节点配置跳转
+    else 置信度低于阈值
+        ENG->>LLM: 请求复判或兜底生成
+        LLM->>LLM: 输出越界检测
+        LLM-->>ENG: 结构化结果或降级信号
+    end
+    ENG->>USR: 播报下一节点话术
+    USR-->>ENG: 通话结束
+    ENG->>TAG: 全程结构化数据
+    TAG->>TAG: 多信号加权分级
+    TAG-->>SCH: 回写结果与后续动作`;
+
 export const flowchartSixSiblingSubgraphs = `flowchart TB
     subgraph 接入层
     U1[运营配置后台]
@@ -87,7 +122,57 @@ export const flowchartSixSiblingSubgraphs = `flowchart TB
     D1 --> E4
     B4 --> E5`;
 
+export const colorEncodingGallery = {
+  pie: `pie showData
+    title 渠道构成
+    "电话" : 42
+    "短信" : 31
+    "企业微信" : 27`,
+  journey: `journey
+    title 客户服务旅程
+    section 接触
+      接听电话: 5: 客户
+      确认需求: 4: 客户, 坐席
+    section 交付
+      完成办理: 5: 坐席`,
+  git: `gitGraph
+    commit id: "开始"
+    branch feature
+    checkout feature
+    commit id: "功能"
+    checkout main
+    merge feature id: "合并"
+    commit id: "发布"`,
+  xy: `xychart-beta
+    title "Contact trend"
+    x-axis [Jan, Feb, Mar, Apr]
+    y-axis "Count" 0 --> 100
+    bar [35, 62, 48, 81]
+    line [22, 44, 70, 76]`,
+  sankey: `sankey-beta
+Leads,Interested,60
+Leads,Declined,40
+Interested,Won,35
+Interested,Follow-up,25`,
+  gantt: `gantt
+    title 交付计划
+    dateFormat YYYY-MM-DD
+    section 实施
+    已完成 :done, a1, 2026-08-01, 3d
+    关键任务 :crit, active, a2, after a1, 4d
+    常规任务 :a3, after a2, 3d`,
+  state: `stateDiagram-v2
+    [*] --> 待处理
+    待处理 --> 处理中
+    处理中 --> 已完成
+    已完成 --> [*]`,
+  er: `erDiagram
+    CUSTOMER ||--o{ ORDER : places
+    ORDER ||--|{ LINE_ITEM : contains`,
+};
+
 export const mermaidCaseExpectations = {
   sequence: { actors: 2, messages: 9, notes: 8 },
+  outboundSequence: { actors: 8, messages: 21, controlSections: 1 },
   flowchart: { groups: 6, nodes: 24, rootGroups: ['__group_0', '__group_1', '__group_2', '__group_3', '__group_4', '__group_5'] },
 };

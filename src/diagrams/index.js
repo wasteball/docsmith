@@ -85,6 +85,13 @@ export function supportsFence(language) {
 /** 按围栏语言画图，避免把 Infographic 冒充成 Mermaid。 */
 export function renderFencedDiagram(language, src, options = {}) {
   const lang = String(language ?? '').trim().toLowerCase();
+
+  /* Mermaid 围栏统一交给桥接层：官方运行时存在时必须使用官方 Mermaid，
+     自研引擎只在官方包缺席时兜底。Infographic 有独立围栏，不会混入这里。 */
+  if (lang === 'mermaid' && typeof options.mermaidRender === 'function') {
+    return options.mermaidRender(String(src ?? ''));
+  }
+
   const renderer = detect(src);
   if (!renderer || !renderer.fences.includes(lang)) {
     throw new UnsupportedDiagram(lang || '未知');
@@ -128,7 +135,10 @@ function asPromise(value) {
 /* ============================================== mermaid 兼容外观 */
 
 export function install(win = window) {
-  if (win.mermaid && !win.mermaid.__docsmith) return win.mermaid;
+  /* 官方 Mermaid 已经先加载时也必须继续安装 DocsmithDiagrams 统一入口。
+     旧实现直接 return，结果标准运行时在，但 Markdown 工作台看不见图表能力。 */
+  if (win.mermaid?.__docsmith && win.DocsmithDiagrams) return win.mermaid;
+  const existingMermaid = win.mermaid;
 
   const api = {
     __docsmith: true,
@@ -146,7 +156,7 @@ export function install(win = window) {
     detect,
     supported,
   };
-  win.mermaid = api;
+  win.mermaid = existingMermaid || api;
   win.DocsmithDiagrams = {
     renderDiagram, renderFencedDiagram, detect, supported, supportsFence,
     registerRenderer, background: backgroundOf,

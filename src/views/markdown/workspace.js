@@ -550,6 +550,7 @@
 
     function paint() { raf = 0; stage.style.transform = 'translate(' + st.x.toFixed(1) + 'px,' + st.y.toFixed(1) + 'px) scale(' + st.s.toFixed(4) + ')'; label(); }
     function apply() { if (!raf && !dead) raf = requestAnimationFrame(paint); }
+    function flush() { if (dead) return; if (raf) { cancelAnimationFrame(raf); raf = 0; } paint(); }
     function label() {
       var el = opts.tools && opts.tools.querySelector('[data-zoomlabel]');
       if (el) el.textContent = Math.round(st.s * 100) + '%';
@@ -698,7 +699,7 @@
     }
 
     var api = {
-      set: set, zoomAt: zoomAt, reset: reset, fit: fit, actual: actual,
+      set: set, zoomAt: zoomAt, reset: reset, fit: fit, actual: actual, flush: flush,
       get scale() { return st.s; },
       destroy: function () {
         if (dead) return; dead = true;
@@ -815,6 +816,7 @@
       else if (z === 'fit') pz.fit();
       else if (z === 'reset') pz.reset();
       else if (z === 'one') pz.actual();
+      if (z !== 'full') pz.flush();
       else if (z === 'full') { if (e.detail > 0) btn.blur(); openChartFull(stage.querySelector('svg'), d); }
     });
   }
@@ -864,7 +866,12 @@
     });
     bindTools(tools, pz, stage, d);
     bindDiagramTrace(vp, svg);
-    requestAnimationFrame(function () { pz.fit(0); });
+    /* 两帧后 fit 才真正写 transform；只调一帧会让 readiness 已 resolve、
+       截图/导出已经开始时 stage 仍是 transform:none，看起来整张图贴在左边。 */
+    requestAnimationFrame(function () {
+      pz.fit(0);
+      requestAnimationFrame(function () { pz.fit(1); });
+    });
   }
   function sweepMermaidLeftovers() {
     document.querySelectorAll('body > div[id^="dmmd-"], body > div[id^="dmermaid-"]').forEach(function (n) { n.remove(); });
@@ -887,6 +894,78 @@
     }).join('\n');
   }
   var mmRunToken = 0, mmReadyPromise = Promise.resolve({ ready: true, errors: 0, cancelled: false });
+  function isMermaidSequence(source) {
+    return /(?:^|\n)\s*sequenceDiagram\b/i.test(String(source || ''));
+  }
+  /**
+   * These diagrams use colour as data: a slice, branch, series, set, lane, or region
+   * needs to keep its identity. Structural diagrams (flowchart / class / state / ER /
+   * requirement / architecture) deliberately stay on Docsmith's restrained base theme.
+   *
+   * Match the declaration anywhere rather than assuming line 1: Mermaid permits init
+   * directives and frontmatter before the diagram keyword.
+   */
+  function usesMermaidCategoricalTheme(source) {
+    return /(?:^|\n)\s*(?:pie|journey|gitGraph|xychart(?:-beta)?|radar(?:-beta)?|sankey(?:-beta)?|venn(?:-beta)?)\b/i.test(String(source || ''));
+  }
+  function mermaidConfig(mode, source) {
+    var dark = mode === 'dark';
+    var sequence = isMermaidSequence(source);
+    var categorical = usesMermaidCategoricalTheme(source);
+    var common = {
+      startOnLoad: false,
+      securityLevel: 'strict',
+      htmlLabels: false,
+      suppressErrorRendering: true,
+      fontFamily: 'system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif',
+      flowchart: { htmlLabels: false, useMaxWidth: false }
+    };
+    /* Mermaid 11.16 的 redux-color 是官方的“按参与者分色”时序主题。
+       这里只在 sequenceDiagram 上启用，恢复 Mermaid 自己的身份色和 neo 圆角投影；
+       其他图仍沿用 Docsmith 的克制底色与当前强调色，不能因为同一篇里有时序图就串色。 */
+    if (sequence || categorical) {
+      common.theme = dark ? 'redux-dark-color' : 'redux-color';
+      /* neo is a visual treatment for node/actor diagrams. Data diagrams only need the
+         official palette; leaving their look at the Mermaid default avoids changing marks. */
+      if (sequence) common.look = 'neo';
+      return common;
+    }
+    /* 图表边框跟随工作台当前强调色，而不是另起一套固定紫色。
+       节点底色仍保持克制的纸白 / 墨黑，避免整张图被主题色淹没。 */
+    var appearance = appearNow();
+    var accent = ACCENTS[appearance.accent] || ACCENTS.amber;
+    var noteAccent = appearance.accent === 'amber' ? accent : (dark ? '#f4b942' : '#c8891a');
+    common.theme = 'base';
+    common.themeVariables = dark ? {
+        background: '#14171f', primaryColor: '#202634', primaryTextColor: '#dfe3ec',
+        primaryBorderColor: accent, secondaryColor: '#191e2c', secondaryTextColor: '#dfe3ec',
+        tertiaryColor: '#252b3a', tertiaryTextColor: '#dfe3ec', lineColor: '#9aa0b4',
+        textColor: '#dfe3ec', mainBkg: '#202634', nodeBorder: accent,
+        clusterBkg: '#191e2c', clusterBorder: '#39414f', edgeLabelBackground: '#14171f',
+        actorBkg: '#202634', actorBorder: accent, actorTextColor: '#dfe3ec',
+        signalColor: '#9aa0b4', signalTextColor: '#dfe3ec', noteBkgColor: '#3a321d',
+        noteBorderColor: noteAccent, noteTextColor: '#dfe3ec',
+        attributeBackgroundColorOdd: '#202634', attributeBackgroundColorEven: '#191e2c',
+        relationColor: '#9aa0b4', relationLabelColor: '#dfe3ec', relationLabelBackground: '#14171f',
+        erEdgeLabelBackground: '#14171f'
+      } : {
+        background: '#fcfcfb', primaryColor: '#f6f7f9', primaryTextColor: '#2b2f36',
+        primaryBorderColor: accent, secondaryColor: '#eef0f3', secondaryTextColor: '#2b2f36',
+        tertiaryColor: '#e6e8ec', tertiaryTextColor: '#2b2f36', lineColor: '#6b7280',
+        textColor: '#2b2f36', mainBkg: '#f6f7f9', nodeBorder: accent,
+        clusterBkg: '#f6f7f9', clusterBorder: '#d6dbe2', edgeLabelBackground: '#fcfcfb',
+        actorBkg: '#f6f7f9', actorBorder: accent, actorTextColor: '#2b2f36',
+        signalColor: '#6b7280', signalTextColor: '#2b2f36', noteBkgColor: '#fff6c9',
+        noteBorderColor: noteAccent, noteTextColor: '#2b2f36',
+        attributeBackgroundColorOdd: '#f6f7f9', attributeBackgroundColorEven: '#eef0f3',
+        relationColor: '#6b7280', relationLabelColor: '#2b2f36', relationLabelBackground: '#fcfcfb',
+        erEdgeLabelBackground: '#fcfcfb'
+      };
+    return common;
+  }
+  function initializeMermaid(mode, source) {
+    if (window.mermaid && typeof mermaid.initialize === 'function') mermaid.initialize(mermaidConfig(mode, source));
+  }
   function renderDiagrams(root) {
     if (!window.DocsmithDiagrams) return Promise.resolve({ ready: true, errors: 0, cancelled: false });
     var scope = root || preview;
@@ -925,11 +1004,20 @@
       var raw = codeEl.textContent;
       var src = language === 'mermaid' ? prepareMermaidSource(raw) : raw;
       if (!src || !src.trim()) { errors++; mmError(b, target, new Error('empty diagram')); step(); return; }
+      /* Mermaid 的配置是全局的，所以必须紧挨当前图的 render 设置。队列本来就是串行，
+         这样彩色时序图之后的 flowchart 会立即切回 base，不会继承 redux-color。 */
+      if (language === 'mermaid') initializeMermaid(resolvedTheme(), src);
       var markReady = function () { b.dataset.diagramState = 'ready'; };
       var markError = function (e) { errors++; mmError(b, target, e); };
       var advance = function () { sweepMermaidLeftovers(); step(); };
       try {
-        var out = DocsmithDiagrams.renderFencedDiagram(language, src);
+        var out = DocsmithDiagrams.renderFencedDiagram(language, src, {
+          mermaidRender: function (source) {
+            return DocsmithDiagrams.renderMermaid
+              ? DocsmithDiagrams.renderMermaid(source, { renderId: 'docsmith-mmd-' + token + '-' + idx })
+              : mermaid.render('docsmith-mmd-' + token + '-' + idx, source);
+          }
+        });
         if (out && typeof out.then === 'function') {
           out.then(function (svg) { try { mountDiagram(target, svg && svg.svg ? svg.svg : svg); markReady(); } catch (e) { markError(e); } })
              .catch(markError)
@@ -946,6 +1034,17 @@
     requestAnimationFrame(function () { requestAnimationFrame(finish); });
     setTimeout(finish, 180);
   }); }
+  function settleDiagramViewports(scope) {
+    return nextPaint().then(function () {
+      Array.prototype.forEach.call(scope.querySelectorAll('.mm-viewport'), function (vp) {
+        if (!vp.__pz) return;
+        vp.__pz.fit(1);
+        /* fit 用 rAF 合并绘制；导出/验收不能在它真正落到 stage 前继续。 */
+        vp.__pz.flush();
+      });
+      return nextPaint();
+    });
+  }
   function whenDiagramsReady(root, opts) {
     opts = opts || {};
     var timeout = opts.timeout == null ? 10000 : opts.timeout;
@@ -956,9 +1055,10 @@
       clearTimeout(timer);
       if (result.cancelled) return whenDiagramsReady(root, opts);
       var fonts = document.fonts && document.fonts.ready ? document.fonts.ready.catch(function () {}) : Promise.resolve();
-      return fonts.then(nextPaint).then(function () {
+      return fonts.then(function () {
         var scope = root || preview;
-        Array.prototype.forEach.call(scope.querySelectorAll('.mm-viewport'), function (vp) { if (vp.__pz) vp.__pz.fit(0); });
+        return settleDiagramViewports(scope);
+      }).then(function () {
         if (opts.requireSuccess && result.errors) throw new Error(result.errors + ' 个图表未能渲染');
         return result;
       });
@@ -995,7 +1095,11 @@
       dims: d, tools: tools, setHeight: false, wheelZoom: true, allowUpscale: true
     });
     bindTools(tools, pz, stage, d);
-    requestAnimationFrame(function () { pz.fit(0); try { vp.focus({ preventScroll: true }); } catch (e) {} });
+    requestAnimationFrame(function () {
+      pz.fit(0); pz.flush();
+      try { vp.focus({ preventScroll: true }); } catch (e) {}
+      requestAnimationFrame(function () { pz.fit(1); pz.flush(); });
+    });
   }
 
   /* ---------- overlay ------------------------------------------------- */
@@ -1189,7 +1293,14 @@
       var currentView = flowBlock.dataset.flowView || 'overview'; var nextView = currentView === 'overview' ? 'detail' : 'overview';
       flowMode.disabled = true; flowMode.textContent = 'Drawing…';
       Promise.resolve(DocsmithDiagrams.renderFencedDiagram(flowBlock.dataset.diagramLanguage || 'mermaid',
-        prepareMermaidSource(sourceEl.textContent), { view: nextView })).then(function (svgHtml) {
+        prepareMermaidSource(sourceEl.textContent), {
+          view: nextView,
+          mermaidRender: function (source) {
+            return DocsmithDiagrams.renderMermaid
+              ? DocsmithDiagrams.renderMermaid(source, { view: nextView })
+              : mermaid.render('docsmith-flow-view-' + mmRunToken, source);
+          }
+        })).then(function (svgHtml) {
         mountDiagram(renderTarget, svgHtml && svgHtml.svg ? svgHtml.svg : svgHtml);
         flowBlock._pngReady = null; flowBlock._pngPromise = null;
       }).catch(function (error) { toast('切换图表视图失败：' + ((error && error.message) || '未知错误'), 'err'); })
@@ -1614,9 +1725,12 @@
     "vp.addEventListener('dblclick',function(e){if(e.target.closest&&e.target.closest('.mm-tools'))return;",
     "e.preventDefault();if(Math.abs(st.s-base.s)<0.01){var r=vp.getBoundingClientRect();",
     "st.s=1;st.x=(r.width-d.w)/2;st.y=Math.max(PAD,(r.height-d.h)/2);apply();}else{st=({s:base.s,x:base.x,y:base.y});apply();}});",
-    "var api={fit:fit,zoomAt:zoomAt,reset:function(){st={s:base.s,x:base.x,y:base.y};apply();},",
+    "function flush(){if(raf){cancelAnimationFrame(raf);paint();}}",
+    "function snapshot(){return {scale:st.s,x:st.x,y:st.y,baseScale:base.s,baseX:base.x,baseY:base.y};}",
+    "var api={fit:fit,zoomAt:zoomAt,flush:flush,state:snapshot,",
+    "reset:function(){st={s:base.s,x:base.x,y:base.y};apply();},",
     "actual:function(){var r=vp.getBoundingClientRect();st.s=1;st.x=(r.width-d.w)/2;st.y=Math.max(PAD,(r.height-d.h)/2);apply();}};",
-    "vp.__pz=api;fit();",
+    "vp.__pz=api;fit();flush();",
     "if(typeof ResizeObserver==='function'){var t=0;",
     "try{new ResizeObserver(function(){clearTimeout(t);t=setTimeout(fit,120);}).observe(vp);}catch(x){}}",
     "return api;}",
@@ -1647,7 +1761,7 @@
        不先删掉就会出现两条工具栏叠在一起，其中一条还是死的。 */
     "var host=vp.parentNode,old=host.querySelectorAll('.mm-tools');",
     "for(var j=0;j<old.length;j++)old[j].parentNode.removeChild(old[j]);",
-    "if(setup(vp)){host.appendChild(tools(vp));trace(vp,vp.querySelector('svg'));}}",
+    "if(setup(vp)){host.appendChild(tools(vp));trace(vp,vp.querySelector('svg'));}}}",
     "if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();",
     /* 复制成 PNG：和工作台一样先把 SVG 画到 canvas 上，再写剪贴板。
        写不进去（浏览器不给权限）就退成下载一张图，别让用户点了没反应。 */
@@ -1889,7 +2003,10 @@
        按需重渲染，避免导出页携带第二套重复 SVG 与渲染器。 */
     /* 画布要能裁剪（否则拖动时图会溢出到正文上），且默认手型提示可拖 */
     + '.doc .diagram-render{position:relative;}'
-    + '.doc .mm-viewport{overflow:hidden; cursor:grab; touch-action:pan-y;}'
+    /* doc.css 的 toolbar 规则特异性高于 SVG 内嵌的通用样式；这里仍显式声明层级，
+       防止超大 SVG 的 viewport stacking context 在导出页里盖住浮动按钮。 */
+    + '.doc .diagram-render>.mm-tools{z-index:10;}'
+    + '.doc .mm-viewport{overflow:hidden; cursor:grab; touch-action:pan-y; z-index:0;}'
     + '.doc .mm-viewport.grabbing{cursor:grabbing; touch-action:none;}'
     + '.doc .mm-stage{transform-origin:0 0;}'
     + '.doc .mm-stage svg{margin:0 !important;}';
@@ -2661,7 +2778,7 @@
   function resolvedTheme() { return Appearance.resolved(); }
   var shellAppear = null;                       // 外壳接管时的外观（内存优先，不靠 localStorage）
   function appearNow() { if (shellAppear) return shellAppear; var a = Appearance.read(); return { theme: a.theme, accent: a.accent }; }
-  function applyTheme() { var _a = appearNow(), mode = Appearance.resolve(_a.theme); var _r = document.documentElement; _r.dataset.theme = mode; _r.dataset.accent = _a.accent; var l = $('#hljs-light'), d = $('#hljs-dark'); if (l) l.disabled = mode !== 'light'; if (d) d.disabled = mode !== 'dark'; if (window.mermaid) mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', htmlLabels: false, fontFamily: 'system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif', flowchart: { htmlLabels: false, useMaxWidth: false }, theme: mode === 'dark' ? 'dark' : 'default' }); var doc = curDoc(); if (doc && doc.text != null) renderMarkdown(doc.text); }
+  function applyTheme() { var _a = appearNow(), mode = Appearance.resolve(_a.theme); var _r = document.documentElement; _r.dataset.theme = mode; _r.dataset.accent = _a.accent; var l = $('#hljs-light'), d = $('#hljs-dark'); if (l) l.disabled = mode !== 'light'; if (d) d.disabled = mode !== 'dark'; initializeMermaid(mode); var doc = curDoc(); if (doc && doc.text != null) renderMarkdown(doc.text); }
   /* 三档正文字体（黑体 / 圆体 / 衬线）都要在这里落到对应的 class 上。
      新增一档就得在**三处**同时加：settings.js 的 options、doc.css 的
      .doc.font-*、以及这里 —— 少一处就是个「选了没反应」的假选项。
@@ -5384,7 +5501,7 @@
   /* ---------- boot --------------------------------------------------- */
   function boot() {
     initUI();
-    if (window.mermaid) mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', htmlLabels: false, fontFamily: 'system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif', flowchart: { htmlLabels: false, useMaxWidth: false }, theme: Appearance.resolved() === 'dark' ? 'dark' : 'default' });
+    initializeMermaid(Appearance.resolved());
     var pc = $('#proxyChk'); if (pc) pc.checked = store.get('proxy', '0') === '1';
     settings = readReadingSettings();
     var ca = $('#cssArea'), savedCss = store.get('customCss', ''); if (ca) ca.value = savedCss; applyCustomCss(savedCss);

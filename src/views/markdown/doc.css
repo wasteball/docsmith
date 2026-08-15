@@ -171,6 +171,13 @@
    prepSvg() 也写了内联 margin:0，两处都留着：内联管渲染那一刻，
    这条管「导出的网页/打印」这些没有 JS 参与的场合。 */
 .doc .mm-stage svg{display:block; max-width:none; margin:0;}
+/* 官方 Mermaid 的 SVG 有自己的 class / 内嵌样式；工作台只负责画布层，不重染
+   图内配色。这样 Docsmith 现有纸白、边框、工具浮层不动，图也不会被 diagrams.css
+   里自研引擎的 .dg 规则误伤。 */
+.doc .mm-stage svg:not(.dg){font-family:var(--doc-head); background:transparent;}
+.doc .mm-stage svg:not(.dg) .edgeLabel,.doc .mm-stage svg:not(.dg) .label{font-family:var(--doc-head);}
+.doc .mm-stage svg:not(.dg) .edgeLabel p{background:var(--doc-bg) !important; color:var(--doc-fg) !important;}
+.doc .mm-stage svg:not(.dg) .cluster rect{rx:8px; ry:8px;}
 .doc .mm-tools{position:absolute; top:10px; right:10px; display:flex; gap:2px; padding:4px; background:color-mix(in srgb, var(--doc-code-head) 80%, transparent); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); border:1px solid var(--doc-code-border); border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.10), 0 1px 2px rgba(0,0,0,.06); z-index:3; opacity:0; transform:translateY(-5px) scale(.97); transform-origin:top right; pointer-events:none; transition:opacity .18s ease, transform .18s ease;}
 .doc .diagram-render:hover .mm-tools,.doc .mm-tools:focus-within{opacity:1; transform:none; pointer-events:auto;}
 .doc .mm-relations{position:absolute; right:12px; bottom:12px; z-index:4; width:min(390px,calc(100% - 24px)); max-height:230px; overflow:auto; padding:12px 14px; border:1px solid var(--doc-code-border); border-radius:10px; background:color-mix(in srgb,var(--doc-bg) 96%,transparent); box-shadow:0 10px 30px rgba(0,0,0,.14); font-family:var(--doc-head); font-size:12px; line-height:1.5;}

@@ -2,8 +2,10 @@
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Docsmith diagram workspace smoke</title><style>html,body,iframe{width:100%;height:100%;margin:0;border:0}</style></head>
 <body><div id="mount"></div>
 <script type="module">
-import { sequenceLongMessagesWithNotes, flowchartSixSiblingSubgraphs } from './fixtures/mermaid-cases.mjs';
-const source = '# Mermaid 精确回归\n\n```mermaid\n' + sequenceLongMessagesWithNotes + '\n```\n\n```mermaid\n' + flowchartSixSiblingSubgraphs + '\n```';
+import { sequenceAiOutboundCore, sequenceLongMessagesWithNotes, flowchartSixSiblingSubgraphs } from './fixtures/mermaid-cases.mjs';
+const source = '# Mermaid 精确回归\n\n```mermaid\n' + sequenceAiOutboundCore + '\n```\n\n```mermaid\n' + sequenceLongMessagesWithNotes + '\n```\n\n```mermaid\n' + flowchartSixSiblingSubgraphs + '\n```';
+const lightBorders = ['rgb(232, 121, 249)','rgb(45, 212, 191)','rgb(251, 146, 60)','rgb(34, 211, 238)','rgb(74, 222, 128)','rgb(167, 139, 250)','rgb(248, 113, 113)','rgb(250, 204, 21)'];
+const lightFills = ['rgb(253, 244, 255)','rgb(240, 253, 250)','rgb(255, 247, 237)','rgb(236, 254, 255)','rgb(240, 253, 244)','rgb(245, 243, 255)','rgb(254, 242, 242)','rgb(254, 252, 232)'];
 const mount = document.querySelector('#mount');
 const fail = (message) => { window.__workspaceSmoke={error:String(message)};document.body.dataset.rendered='error';document.title=String(message); };
 const frame = document.createElement('iframe'); frame.id='workspace'; frame.src='../src/views/markdown/index.html';
@@ -14,43 +16,125 @@ frame.addEventListener('load', () => {
     if(Date.now()-started>15000) return fail('工作台没有启动');
     setTimeout(wait,60);
   })();
+  function actorsByX(svg, position='top') {
+    return [...svg.querySelectorAll('rect.actor.actor-'+position)].sort((a,b)=>Number(a.getAttribute('x'))-Number(b.getAttribute('x')));
+  }
+  function actorColors(svg, position='top') {
+    return actorsByX(svg,position).map((actor)=>({
+      border:win.getComputedStyle(actor).stroke,
+      fill:win.getComputedStyle(actor).fill,
+      look:actor.dataset.look||'',
+      filter:actor.getAttribute('filter')||''
+    }));
+  }
+  const nextFrame = (target=window) => new Promise((resolve)=>target.requestAnimationFrame(()=>target.requestAnimationFrame(resolve)));
+  async function assertStandaloneInteractions(html) {
+    const parsed=new win.DOMParser().parseFromString(html,'text/html');
+    const inline=[...parsed.scripts].map((script)=>script.textContent).join('\n');
+    try { new win.Function(inline); } catch(error) { throw new Error('独立 HTML 交互脚本语法错误：'+error.message); }
+
+    const exportedFrame=document.createElement('iframe');
+    exportedFrame.style.cssText='position:fixed;left:-2200px;top:0;width:1200px;height:800px;border:0';
+    const loaded=new Promise((resolve)=>exportedFrame.addEventListener('load',resolve,{once:true}));
+    exportedFrame.srcdoc=html;document.body.append(exportedFrame);await loaded;await nextFrame(exportedFrame.contentWindow);
+    try {
+      const exportedDoc=exportedFrame.contentDocument, exportedWin=exportedFrame.contentWindow;
+      const exportedBlocks=[...exportedDoc.querySelectorAll('.diagram-block')];
+      const exportedViewports=[...exportedDoc.querySelectorAll('.diagram-render .mm-viewport')];
+      if(exportedBlocks.length!==3||exportedViewports.length!==3||exportedViewports.some((vp)=>!vp.__pz?.state||!vp.__pz?.flush)) throw new Error('独立 HTML 没有为每张图重建 pan/zoom');
+      if(exportedDoc.querySelectorAll('.diagram-render>.mm-tools').length!==3) throw new Error('独立 HTML 工具栏数量错误');
+
+      const block=exportedBlocks[0],vp=exportedViewports[0],zoom=block.querySelector('[data-z="in"]');
+      const initial=vp.__pz.state(),initialLabel=block.querySelector('[data-zoomlabel]').textContent;
+      zoom.click();vp.__pz.flush();const enlarged=vp.__pz.state();
+      if(enlarged.scale<=initial.scale||block.querySelector('[data-zoomlabel]').textContent===initialLabel) throw new Error('独立 HTML 放大按钮失效');
+
+      const rect=vp.getBoundingClientRect(),pointer={bubbles:true,pointerId:7,button:0};
+      vp.dispatchEvent(new exportedWin.PointerEvent('pointerdown',{...pointer,clientX:rect.left+200,clientY:rect.top+80}));
+      vp.dispatchEvent(new exportedWin.PointerEvent('pointermove',{...pointer,clientX:rect.left+262,clientY:rect.top+116}));
+      vp.dispatchEvent(new exportedWin.PointerEvent('pointerup',{...pointer,clientX:rect.left+262,clientY:rect.top+116}));
+      vp.__pz.flush();const dragged=vp.__pz.state();
+      if(Math.abs(dragged.x-enlarged.x)<50||Math.abs(dragged.y-enlarged.y)<25) throw new Error('独立 HTML 拖拽失效');
+
+      vp.dispatchEvent(new exportedWin.WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-160,clientX:rect.left+300,clientY:rect.top+100}));
+      vp.__pz.flush();const wheeled=vp.__pz.state();
+      if(wheeled.scale<=dragged.scale) throw new Error('独立 HTML 滚轮缩放失效');
+
+      block.querySelector('[data-z="fit"]').click();vp.__pz.flush();const fitted=vp.__pz.state();
+      if(Math.abs(fitted.scale-fitted.baseScale)>.0001||Math.abs(fitted.x-fitted.baseX)>.2) throw new Error('独立 HTML 适应画布失效');
+      block.querySelector('.mm-toggle').click();
+      if(block.dataset.view!=='source') throw new Error('独立 HTML 源码切换失效');
+      block.querySelector('.mm-toggle').click();vp.__pz.flush();
+      if(block.dataset.view!=='diagram'||Math.abs(vp.__pz.state().scale-vp.__pz.state().baseScale)>.0001) throw new Error('独立 HTML 切回图表未重新适配');
+      return {viewports:exportedViewports.length,zoom:true,drag:true,wheel:true,fit:true,toggle:true};
+    } finally { exportedFrame.remove(); }
+  }
+  function assertOutboundStructure(sequence) {
+    const top=actorsByX(sequence), bottom=actorsByX(sequence,'bottom');
+    if(top.length!==8||bottom.length!==8) throw new Error('AI 外呼时序图参与者镜像不完整：'+top.length+' / '+bottom.length);
+    if(sequence.querySelectorAll('.actor-line').length!==8) throw new Error('AI 外呼时序图生命线数量错误');
+    if(sequence.querySelectorAll('.messageLine0,.messageLine1').length!==21) throw new Error('AI 外呼时序图消息数量错误');
+    if(sequence.querySelectorAll('[data-et="control-structure"]').length!==1||sequence.querySelectorAll('.loopLine').length!==5) throw new Error('AI 外呼时序图 alt/else 结构错误');
+    if(!['任务调度','置信度高于阈值','置信度低于阈值','回写结果与后续动作'].every((text)=>sequence.textContent.includes(text))) throw new Error('AI 外呼时序图关键文本丢失');
+  }
+  async function setTheme(theme) {
+    win.MDW.setTheme(theme);
+    await win.MDW.whenDiagramsReady({timeout:30000,requireSuccess:true});
+    if(doc.documentElement.dataset.theme!==theme) throw new Error('工作台主题没有切到 '+theme);
+  }
   async function run(){
     try{
+      await setTheme('light');
       win.MDW.setText(source);
-      const ready=await win.MDW.whenDiagramsReady({timeout:20000,requireSuccess:true});
-      const blocks=[...doc.querySelectorAll('.diagram-block')];
-      const svgs=blocks.map((block)=>block.querySelector('.mm-stage svg'));
-      if(blocks.length!==2||svgs.some((svg)=>!svg)) throw new Error('工作台没有生成两张图');
-      if(blocks.some((block)=>block.dataset.diagramState!=='ready')) throw new Error('图表 readiness 状态错误');
-      if(svgs[0].querySelectorAll('.dg-note').length!==8) throw new Error('工作台 Note 数量错误');
-      if(svgs[1].querySelectorAll('.dg-group').length!==6) throw new Error('工作台分组数量错误');
-      const overview=svgs[1], bundle=overview.querySelector('.dg-bundle-hit'), node=overview.querySelector('[data-node-id="D1"]');
-      if(overview.dataset.flowView!=='overview'||overview.querySelectorAll('.dg-bundle').length!==8) throw new Error('工作台没有默认生成系统概览');
-      bundle.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));
-      if(!overview.classList.contains('is-tracing')||!overview.querySelector('.dg-bundle.is-active')) throw new Error('工作台关系束追踪没有生效');
-      const relationPanel=blocks[1].querySelector('.mm-relations');
-      if(!relationPanel||relationPanel.hidden||!relationPanel.textContent.includes('→')) throw new Error('关系清单没有显示');
-      bundle.dispatchEvent(new PointerEvent('pointerleave',{bubbles:true}));
-      node.focus();node.dispatchEvent(new FocusEvent('focusin',{bubbles:true}));
-      if(!overview.classList.contains('is-tracing')) throw new Error('工作台节点追踪没有生效');
-      const mode=blocks[1].querySelector('.mm-flow-mode');
-      if(!mode||mode.textContent!=='View details') throw new Error('概览/明细切换没有生成');
-      mode.click();
-      const detailStart=Date.now();while(blocks[1].dataset.flowView!=='detail'){if(Date.now()-detailStart>20000)throw new Error('切换明细超时');await new Promise(r=>setTimeout(r,50));}
-      const detail=blocks[1].querySelector('.mm-stage svg');
-      if(detail.dataset.flowView!=='detail'||detail.querySelectorAll('path.dg-edge:not(.dg-edge-hit)').length!==24) throw new Error('明细视图没有保留 24 条原始关系');
-      mode.click();
-      const overviewStart=Date.now();while(blocks[1].dataset.flowView!=='overview'){if(Date.now()-overviewStart>20000)throw new Error('切回概览超时');await new Promise(r=>setTimeout(r,50));}
-      const finalOverview=blocks[1].querySelector('.mm-stage svg');
+      const ready=await win.MDW.whenDiagramsReady({timeout:30000,requireSuccess:true});
+      let blocks=[...doc.querySelectorAll('.diagram-block')];
+      let svgs=blocks.map((block)=>block.querySelector('.mm-stage > svg'));
+      if(blocks.length!==3||svgs.some((svg)=>!svg)) throw new Error('工作台没有生成三张图');
+      if(blocks.some((block)=>block.dataset.diagramState!=='ready')||!win.DocsmithDiagrams.hasOfficialMermaid||svgs.some((svg)=>svg.classList.contains('dg'))) throw new Error('Mermaid 围栏没有全部走官方运行时');
+
+      let [outbound,sequence,flow]=svgs;
+      assertOutboundStructure(outbound);
+      const light=actorColors(outbound);
+      if(light.some((actor)=>actor.look!=='neo'||!actor.filter.includes('drop-shadow'))) throw new Error('彩色时序图没有使用 Mermaid neo 外观');
+      if(light.map((actor)=>actor.border).join('|')!==lightBorders.join('|')||light.map((actor)=>actor.fill).join('|')!==lightFills.join('|')) throw new Error('浅色参与者没有使用 Mermaid redux-color 官方色序');
+      const bottomLight=actorColors(outbound,'bottom');
+      if(bottomLight.map((actor)=>actor.border).join('|')!==lightBorders.join('|')||bottomLight.map((actor)=>actor.fill).join('|')!==lightFills.join('|')) throw new Error('底部参与者没有保持官方配色');
+
+      const noteCount=sequence.querySelectorAll('.note').length;
+      if(noteCount!==8||!sequence.textContent.includes('话术应解释派送时核实地址')) throw new Error('官方 Mermaid Note 回归失败：'+noteCount);
+      const clusterCount=flow.querySelectorAll('.cluster').length, nodeCount=flow.querySelectorAll('.node').length;
+      if(clusterCount!==6||nodeCount!==24||flow.dataset.flowView||blocks[2].querySelector('.mm-flow-mode')) throw new Error('官方 Mermaid 复合流程图结构/路由错误：'+clusterCount+' 个子图 / '+nodeCount+' 个节点');
+      if(flow.querySelector('[data-look="neo"]')) throw new Error('redux-color/neo 主题泄漏到了后续流程图');
+      const flowFills=new Set([...flow.querySelectorAll('.node rect,.node polygon,.node path')].map((shape)=>win.getComputedStyle(shape).fill));
+      if(flowFills.size!==1) throw new Error('后续流程图被时序图主题分色');
+
+      await setTheme('dark');
+      blocks=[...doc.querySelectorAll('.diagram-block')]; svgs=blocks.map((block)=>block.querySelector('.mm-stage > svg'));
+      [outbound,sequence,flow]=svgs;
+      assertOutboundStructure(outbound);
+      const dark=actorColors(outbound);
+      if(dark.map((actor)=>actor.border).join('|')!==lightBorders.join('|')) throw new Error('暗色参与者身份色丢失');
+      if(new Set(dark.map((actor)=>actor.fill)).size!==1||dark[0].fill!=='rgb(17, 17, 19)') throw new Error('暗色参与者没有使用 redux-dark-color 深底');
+      if(!dark.every((actor)=>actor.look==='neo'&&actor.filter.includes('drop-shadow'))) throw new Error('暗色时序图 neo 外观丢失');
+      if(flow.querySelector('[data-look="neo"]')) throw new Error('暗色时序主题泄漏到了流程图');
+
+      await setTheme('light');
       const html=await win.MDW.buildStandaloneHtml();
-      if(html.includes('>正在画图…<')||html.includes('>正在画图...<')) throw new Error('独立 HTML 仍包含加载占位');
-      if(html.includes('class="dg dg-flow is-tracing')||html.includes('class="dg-edge is-active')) throw new Error('独立 HTML 带出了临时追踪状态');
-      if(!html.includes('data-edge-id=')||!html.includes('data-bundle-id=')||!html.includes('话术应解释派送时核实地址')||!html.includes('短信与企业微信')) throw new Error('独立 HTML 图表内容不完整');
-      if(finalOverview.querySelectorAll('.dg-bundle').length!==8||finalOverview.querySelectorAll('.dg-edge').length!==8) throw new Error('最终概览关系数量错误');
-      if(finalOverview.querySelectorAll('.dg-edge-casing').length) throw new Error('概览不应继续携带 24 条明细边 casing');
-      const result={ready:ready.ready,states:blocks.map((b)=>b.dataset.diagramState),notes:8,groups:6,htmlReady:true,
-        flowView:finalOverview.dataset.flowView,bundles:8,localEdges:8,detailEdges:24,
-        engines:[svgs[0].dataset.layoutEngine||'sequence',finalOverview.dataset.flowView],viewports:blocks.every((b)=>!!b.querySelector('.mm-viewport'))};
+      if(html.includes('>正在画图…<')||html.includes('>正在画图...<')||html.includes('mermaid.min.js')) throw new Error('独立 HTML 仍依赖加载占位或 Mermaid runtime');
+      const exported=new win.DOMParser().parseFromString(html,'text/html');
+      const exportedBlocks=[...exported.querySelectorAll('.diagram-block')];
+      const exportedActors=exportedBlocks[0]?.querySelectorAll('rect.actor.actor-top')||[];
+      const exportedStrokes=new Set([...exportedActors].map((actor)=>actor.style.stroke));
+      const exportedFills=new Set([...exportedActors].map((actor)=>actor.style.fill));
+      if(exportedBlocks.length!==3||exportedActors.length!==8||exportedStrokes.size!==8||exportedFills.size!==8) throw new Error('独立 HTML 没有保留时序图多参与者配色');
+      if(!html.includes('回写结果与后续动作')||!html.includes('短信与企业微信')) throw new Error('独立 HTML 图表内容不完整');
+      const standaloneInteractions=await assertStandaloneInteractions(html);
+
+      const result={ready:ready.ready,states:blocks.map((b)=>b.dataset.diagramState),actors:8,messages:21,notes:noteCount,
+        lightBorders:light.map((actor)=>actor.border),lightFills:light.map((actor)=>actor.fill),darkFill:dark[0].fill,
+        neo:true,groups:clusterCount,nodes:nodeCount,htmlReady:true,htmlPalette:{strokes:exportedStrokes.size,fills:exportedFills.size},
+        engines:['official-mermaid','official-mermaid','official-mermaid'],themeLeak:false,overviewTakeover:false,
+        viewports:blocks.every((b)=>!!b.querySelector('.mm-viewport')),standaloneInteractions};
       window.__workspaceSmoke=result;document.body.dataset.rendered='true';document.title=JSON.stringify(result);
     }catch(error){fail(error.message);}
   }
