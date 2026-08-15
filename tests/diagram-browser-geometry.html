@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Docsmith diagram geometry regression</title>
+<link rel="stylesheet" href="../src/core/tokens.css">
+<link rel="stylesheet" href="../src/diagrams/diagrams.css">
+<style>body{margin:0;padding:20px;background:#fff}main{display:grid;gap:32px}.case{overflow:auto;border:1px solid #ddd;padding:12px}</style>
+</head>
+<body><main></main>
+<script src="../src/vendor/elk.bundled.js"></script>
+<script type="module">
+import { renderDiagram } from '../src/diagrams/index.js';
+import { sequenceLongMessagesWithNotes, flowchartSixSiblingSubgraphs } from './fixtures/mermaid-cases.mjs';
+
+const main = document.querySelector('main');
+const fail = (message) => { throw new Error(message); };
+const insideViewBox = (svg) => {
+  const vb = svg.viewBox.baseVal; const bb = svg.getBBox(); const epsilon = 2;
+  return bb.x >= vb.x - epsilon && bb.y >= vb.y - epsilon
+    && bb.x + bb.width <= vb.x + vb.width + epsilon
+    && bb.y + bb.height <= vb.y + vb.height + epsilon;
+};
+const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+const pathPoints = (path) => {
+  const values = [...path.getAttribute('d').matchAll(/[MLQ]\s*([\d.-]+)\s+([\d.-]+)(?:\s+([\d.-]+)\s+([\d.-]+))?/g)];
+  const points=[]; values.forEach((match)=>{points.push({x:+match[1],y:+match[2]});if(match[3]!=null)points.push({x:+match[3],y:+match[4]});}); return points;
+};
+const segmentEnters = (a,b,r) => Math.abs(a.x-b.x)<.1
+  ? a.x>r.x+1&&a.x<r.x+r.width-1&&Math.max(a.y,b.y)>r.y+1&&Math.min(a.y,b.y)<r.y+r.height-1
+  : a.y>r.y+1&&a.y<r.y+r.height-1&&Math.max(a.x,b.x)>r.x+1&&Math.min(a.x,b.x)<r.x+r.width-1;
+try {
+  for (const source of [sequenceLongMessagesWithNotes, flowchartSixSiblingSubgraphs]) {
+    const host = document.createElement('section'); host.className = 'case';
+    host.innerHTML = await renderDiagram(source); main.append(host);
+  }
+  await Promise.race([document.fonts.ready, new Promise((resolve) => setTimeout(resolve, 500))]);
+  await new Promise((resolve) => { let done=false; const finish=()=>{if(!done){done=true;resolve();}}; requestAnimationFrame(()=>requestAnimationFrame(finish)); setTimeout(finish,180); });
+  const [sequence, flow] = main.querySelectorAll('svg');
+  if (!sequence || !flow) fail('没有生成两张 SVG');
+  if (!insideViewBox(sequence)) fail('时序图内容超出 viewBox');
+  if (!insideViewBox(flow)) fail('流程图内容超出 viewBox');
+  if (sequence.querySelectorAll('.dg-note').length !== 8) fail('时序图 Note 数量不对');
+  if (!sequence.textContent.includes('话术应解释派送时核实地址')) fail('最后一条 Note 丢失');
+  const frames = [...flow.querySelectorAll('.dg-group')].map((node) => node.getBoundingClientRect());
+  if (frames.length !== 6) fail('流程图分组数量不对');
+  if (frames.some((frame, i) => frames.slice(i + 1).some((other) => overlaps(frame, other)))) fail('同级分组仍有重叠');
+  const edgePaths=[...flow.querySelectorAll('path.dg-edge')];
+  const bundlePaths=[...flow.querySelectorAll('path.dg-bundle')];
+  if(edgePaths.concat(bundlePaths).some((path)=>/\bC/.test(path.getAttribute('d')))) fail('复合图仍存在自由贝塞尔线');
+  if(edgePaths.length!==8||bundlePaths.length!==8||flow.querySelectorAll('.dg-bundle-hit').length!==8) fail('概览关系数量不对');
+  if(edgePaths.some((path)=>!path.dataset.edgeId||!path.dataset.edgeFrom||!path.dataset.edgeTo)) fail('组内边追踪元数据不完整');
+  if(bundlePaths.some((path)=>!path.dataset.bundleId||!path.dataset.bundleFrom||!path.dataset.bundleTo||!path.dataset.bundleMembers)) fail('关系束元数据不完整');
+  const nodeRects=[...flow.querySelectorAll('.dg-shape')].map((node)=>({id:node.dataset.nodeId,x:+node.getAttribute('x'),y:+node.getAttribute('y'),width:+node.getAttribute('width'),height:+node.getAttribute('height')})).filter((r)=>[r.x,r.y,r.width,r.height].every(Number.isFinite));
+  let obstacleHits=0;
+  edgePaths.forEach((path)=>{const points=pathPoints(path);const endpoints=new Set([path.dataset.edgeFrom,path.dataset.edgeTo]);for(let i=1;i<points.length;i++){
+    obstacleHits+=nodeRects.filter((r)=>!endpoints.has(r.id)&&segmentEnters(points[i-1],points[i],r)).length;
+  }});
+  if(obstacleHits) fail(`连线穿过 ${obstacleHits} 个节点`);
+  const result = {
+    sequenceViewBox: [sequence.viewBox.baseVal.width, sequence.viewBox.baseVal.height],
+    sequenceNotes: sequence.querySelectorAll('.dg-note').length,
+    flowViewBox: [flow.viewBox.baseVal.width, flow.viewBox.baseVal.height],
+    flowView: flow.dataset.flowView,
+    groups: frames.length,
+    localEdges: edgePaths.length,
+    bundles: bundlePaths.length,
+    detailedRelations: +flow.dataset.crossGroupEdgeCount,
+    nodeObstacleHits: obstacleHits,
+  };
+  window.__diagramGeometry = result;
+  document.body.dataset.rendered = 'true';
+  document.title = JSON.stringify(result);
+} catch (error) {
+  window.__diagramGeometry = { error: error.message };
+  document.body.dataset.rendered = 'error';
+  document.title = error.message;
+}
+</script>
+</body></html>

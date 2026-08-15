@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Docsmith flow routing</title><link rel="stylesheet" href="../src/core/tokens.css"><link rel="stylesheet" href="../src/diagrams/diagrams.css"><style>html,body{margin:0;background:#fff}main{padding:18px;overflow:auto}.diagram{min-width:max-content}</style></head><body><main><div class="diagram">正在画图…</div></main><script src="../src/vendor/elk.bundled.js"></script><script type="module">
+import { renderDiagram } from '../src/diagrams/index.js';
+import { flowchartSixSiblingSubgraphs } from './fixtures/mermaid-cases.mjs';
+const host=document.querySelector('.diagram');
+try{host.innerHTML=await renderDiagram(flowchartSixSiblingSubgraphs);await Promise.race([document.fonts.ready,new Promise(r=>setTimeout(r,500))]);document.body.dataset.rendered='true';const svg=host.querySelector('svg');document.title=JSON.stringify({viewBox:[svg.viewBox.baseVal.width,svg.viewBox.baseVal.height],engine:svg.dataset.layoutEngine,warning:svg.dataset.layoutWarning||''});}catch(error){document.body.dataset.rendered='error';document.title=error.message;}
+</script></body></html>

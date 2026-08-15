@@ -716,8 +716,83 @@
   function destroyPanZoom(root) {
     if (!root) return;
     var list = root.querySelectorAll ? root.querySelectorAll('.mm-viewport') : [];
-    Array.prototype.forEach.call(list, function (vp) { if (vp.__pz) vp.__pz.destroy(); });
-    if (root.classList && root.classList.contains('mm-viewport') && root.__pz) root.__pz.destroy();
+    Array.prototype.forEach.call(list, function (vp) {
+      if (vp.__pz) vp.__pz.destroy();
+      if (vp.__traceAbort) { try { vp.__traceAbort.abort(); } catch (e) {} delete vp.__traceAbort; }
+    });
+    if (root.classList && root.classList.contains('mm-viewport')) {
+      if (root.__pz) root.__pz.destroy();
+      if (root.__traceAbort) { try { root.__traceAbort.abort(); } catch (e) {} delete root.__traceAbort; }
+    }
+  }
+  function bindDiagramTrace(vp, svg) {
+    if (!vp || !svg || !svg.classList.contains('dg-flow') || typeof AbortController !== 'function') return;
+    if (vp.__traceAbort) vp.__traceAbort.abort();
+    var ac = new AbortController(), opts = { signal: ac.signal }; vp.__traceAbort = ac;
+    var target = vp.closest('.diagram-render') || vp.parentNode;
+    var panel = target && target.querySelector('.mm-relations');
+    if (svg.dataset.flowView === 'overview' && target && !panel) {
+      panel = document.createElement('aside'); panel.className = 'mm-relations'; panel.hidden = true;
+      panel.setAttribute('aria-live', 'polite'); target.appendChild(panel);
+    }
+    var clear = function (hidePanel) {
+      svg.classList.remove('is-tracing');
+      svg.querySelectorAll('.is-active').forEach(function (node) { node.classList.remove('is-active'); });
+      if (hidePanel && panel) { panel.hidden = true; panel.innerHTML = ''; }
+    };
+    var showBundle = function (bundle, persist) {
+      clear(false); svg.classList.add('is-tracing');
+      var id = bundle.dataset.bundleId;
+      svg.querySelectorAll('[data-bundle-id="' + CSS.escape(id) + '"]').forEach(function (node) { node.classList.add('is-active'); });
+      [bundle.dataset.bundleFrom, bundle.dataset.bundleTo].forEach(function (groupId) {
+        var group = svg.querySelector('[data-group-id="' + CSS.escape(groupId) + '"]'); if (group) group.classList.add('is-active');
+      });
+      String(bundle.dataset.bundleNodes || '').split(',').filter(Boolean).forEach(function (nodeId) {
+        var node = svg.querySelector('[data-node-id="' + CSS.escape(nodeId) + '"]'); if (node) node.classList.add('is-active');
+      });
+      if (panel) {
+        var rows = String(bundle.dataset.bundleRelations || '').split('||').filter(Boolean);
+        var fromGroup = svg.querySelector('[data-group-id="' + CSS.escape(bundle.dataset.bundleFrom || '') + '"]');
+        var toGroup = svg.querySelector('[data-group-id="' + CSS.escape(bundle.dataset.bundleTo || '') + '"]');
+        var heading = [fromGroup && fromGroup.dataset.groupTitle, toGroup && toGroup.dataset.groupTitle]
+          .filter(Boolean).join(' → ') || '具体关系';
+        panel.innerHTML = '<div class="mm-relations-head"><strong>' + escapeHtml(heading) + '</strong><span>' + rows.length + ' 项</span>'
+          + (persist ? '<button type="button" aria-label="关闭关系清单">×</button>' : '') + '</div><ul>'
+          + rows.map(function (row) { return '<li>' + escapeHtml(row) + '</li>'; }).join('') + '</ul>';
+        panel.hidden = false;
+      }
+    };
+    var trace = function (eventTarget) {
+      var bundle = eventTarget.closest && eventTarget.closest('[data-bundle-id]');
+      if (bundle && svg.dataset.flowView === 'overview') { showBundle(bundle, false); return; }
+      var edge = eventTarget.closest && eventTarget.closest('[data-edge-id]');
+      var shape = eventTarget.closest && eventTarget.closest('[data-node-id]');
+      if (!edge && !shape) { clear(false); return; }
+      clear(false); svg.classList.add('is-tracing');
+      var nodeId = shape && shape.dataset.nodeId;
+      svg.querySelectorAll('[data-edge-id]').forEach(function (candidate) {
+        var active = edge ? candidate.dataset.edgeId === edge.dataset.edgeId
+          : candidate.dataset.edgeFrom === nodeId || candidate.dataset.edgeTo === nodeId;
+        if (!active) return;
+        candidate.classList.add('is-active');
+        [candidate.dataset.edgeFrom, candidate.dataset.edgeTo].forEach(function (id) {
+          var node = svg.querySelector('[data-node-id="' + CSS.escape(id) + '"]'); if (node) node.classList.add('is-active');
+        });
+      });
+      if (shape) shape.classList.add('is-active');
+    };
+    vp.addEventListener('pointerover', function (e) { trace(e.target); }, opts);
+    vp.addEventListener('pointerleave', function () { if (!vp.__bundlePinned) clear(true); }, opts);
+    vp.addEventListener('focusin', function (e) { trace(e.target); }, opts);
+    vp.addEventListener('focusout', function () { setTimeout(function () { if (!vp.contains(document.activeElement) && !vp.__bundlePinned) clear(true); }, 0); }, opts);
+    vp.addEventListener('click', function (e) {
+      var bundle = e.target.closest && e.target.closest('[data-bundle-id]');
+      if (!bundle || svg.dataset.flowView !== 'overview') return;
+      vp.__bundlePinned = bundle.dataset.bundleId; showBundle(bundle, true); e.stopPropagation();
+    }, opts);
+    if (panel) panel.addEventListener('click', function (e) {
+      if (!e.target.closest('button')) return; vp.__bundlePinned = ''; clear(true);
+    }, opts);
   }
 
   /* 把 SVG 摆成「画布上的一张图」：尺寸写死成它自己的固有尺寸，位置全交给
@@ -768,6 +843,19 @@
     var vp = target.querySelector('.mm-viewport'), stage = target.querySelector('.mm-stage'), svg = stage.querySelector('svg');
     if (!svg) return;
     var d = svgDims(svg); prepSvg(svg, d);
+    var block = target.closest('.diagram-block');
+    if (block) {
+      block.dataset.flowView = svg.dataset.flowView || '';
+      var actions = block.querySelector('.cb-actions'); var existing = actions && actions.querySelector('.mm-flow-mode');
+      if (svg.dataset.flowView && actions) {
+        if (!existing) {
+          existing = document.createElement('button'); existing.type = 'button'; existing.className = 'mm-flow-mode';
+          actions.insertBefore(existing, actions.firstChild);
+        }
+        existing.textContent = svg.dataset.flowView === 'overview' ? 'View details' : 'View overview';
+        existing.setAttribute('aria-pressed', svg.dataset.flowView === 'detail' ? 'true' : 'false');
+      } else if (!svg.dataset.flowView && existing) existing.remove();
+    }
     var tools = target.querySelector('.mm-tools');
     var pz = createPanZoom(vp, stage, {
       dims: d, tools: tools, setHeight: true, maxH: diagramMaxH, wheelZoom: true,
@@ -775,6 +863,7 @@
       onFull: function () { openChartFull(stage.querySelector('svg'), d); }
     });
     bindTools(tools, pz, stage, d);
+    bindDiagramTrace(vp, svg);
     requestAnimationFrame(function () { pz.fit(0); });
   }
   function sweepMermaidLeftovers() {
@@ -797,15 +886,17 @@
       return line;
     }).join('\n');
   }
-  var mmRunToken = 0;
+  var mmRunToken = 0, mmReadyPromise = Promise.resolve({ ready: true, errors: 0, cancelled: false });
   function renderDiagrams(root) {
-    if (!window.DocsmithDiagrams) return;
-    var blocks = (root || preview).querySelectorAll('.diagram-block');
-    if (!blocks.length) return;
-    var idx = 0;
+    if (!window.DocsmithDiagrams) return Promise.resolve({ ready: true, errors: 0, cancelled: false });
+    var scope = root || preview;
+    var blocks = scope.querySelectorAll('.diagram-block');
+    if (!blocks.length) return Promise.resolve({ ready: true, errors: 0, cancelled: false });
+    var idx = 0, errors = 0;
     /* 每次重渲染换一个令牌。上一轮还在排队的图会在下一步发现令牌变了就退出，
        否则文档一改就叠一条新队列，几轮之后同一时刻有十几条队列在跑。 */
     var token = ++mmRunToken;
+    Array.prototype.forEach.call(blocks, function (block) { block.dataset.diagramState = 'pending'; });
     /* Render diagrams ONE AT A TIME.
        While laying out a diagram, mermaid drops a temporary <div id="dmmd-N"> into
        the <body>, measures it, then removes it. The old code rendered every block in
@@ -814,31 +905,67 @@
        Those interrupted renders then hit "Cannot read properties of null (reading
        'appendChild')". Rendering sequentially keeps exactly one temp node live at a
        time, so the sweep can never race an in-flight render. */
+    var settle;
+    var promise = new Promise(function (resolve) { settle = resolve; });
+    mmReadyPromise = promise;
+    function finish(cancelled) {
+      settle({ ready: !cancelled, errors: errors, cancelled: !!cancelled, token: token });
+      if (!cancelled) {
+        try { window.dispatchEvent(new CustomEvent('docsmith:diagrams-ready', { detail: { errors: errors, token: token } })); } catch (e) {}
+      }
+    }
     function step() {
-      if (token !== mmRunToken) return;
-      if (idx >= blocks.length) return;
+      if (token !== mmRunToken) { finish(true); return; }
+      if (idx >= blocks.length) { finish(false); return; }
       var b = blocks[idx++];
-      if (!b.isConnected) { step(); return; }
+      if (!b.isConnected) { b.dataset.diagramState = 'cancelled'; step(); return; }
       var codeEl = b.querySelector('.diagram-source code'), target = b.querySelector('.diagram-render');
-      if (!codeEl || !target) { step(); return; }
+      if (!codeEl || !target) { b.dataset.diagramState = 'error'; errors++; step(); return; }
       var language = b.dataset.diagramLanguage || 'mermaid';
       var raw = codeEl.textContent;
       var src = language === 'mermaid' ? prepareMermaidSource(raw) : raw;
-      if (!src || !src.trim()) { mmError(b, target, new Error('empty diagram')); step(); return; }
+      if (!src || !src.trim()) { errors++; mmError(b, target, new Error('empty diagram')); step(); return; }
+      var markReady = function () { b.dataset.diagramState = 'ready'; };
+      var markError = function (e) { errors++; mmError(b, target, e); };
       var advance = function () { sweepMermaidLeftovers(); step(); };
       try {
         var out = DocsmithDiagrams.renderFencedDiagram(language, src);
         if (out && typeof out.then === 'function') {
-          out.then(function (svg) { try { mountDiagram(target, svg && svg.svg ? svg.svg : svg); } catch (e) { mmError(b, target, e); } })
-             .catch(function (e) { mmError(b, target, e); })
+          out.then(function (svg) { try { mountDiagram(target, svg && svg.svg ? svg.svg : svg); markReady(); } catch (e) { markError(e); } })
+             .catch(markError)
              .then(advance, advance);
-        } else if (typeof out === 'string') { mountDiagram(target, out); advance(); }
-        else { advance(); }
-      } catch (e) { mmError(b, target, e); advance(); }
+        } else if (typeof out === 'string') { try { mountDiagram(target, out); markReady(); } catch (e) { markError(e); } advance(); }
+        else { markError(new Error('图表没有生成内容')); advance(); }
+      } catch (e) { markError(e); advance(); }
     }
     step();
+    return promise;
+  }
+  function nextPaint() { return new Promise(function (resolve) {
+    var done = false; var finish = function () { if (done) return; done = true; resolve(); };
+    requestAnimationFrame(function () { requestAnimationFrame(finish); });
+    setTimeout(finish, 180);
+  }); }
+  function whenDiagramsReady(root, opts) {
+    opts = opts || {};
+    var timeout = opts.timeout == null ? 10000 : opts.timeout;
+    var wait = mmReadyPromise || Promise.resolve({ ready: true, errors: 0, cancelled: false });
+    var timer;
+    var timed = new Promise(function (_, reject) { timer = setTimeout(function () { reject(new Error('图表渲染超时，请稍后重试')); }, timeout); });
+    return Promise.race([wait, timed]).then(function (result) {
+      clearTimeout(timer);
+      if (result.cancelled) return whenDiagramsReady(root, opts);
+      var fonts = document.fonts && document.fonts.ready ? document.fonts.ready.catch(function () {}) : Promise.resolve();
+      return fonts.then(nextPaint).then(function () {
+        var scope = root || preview;
+        Array.prototype.forEach.call(scope.querySelectorAll('.mm-viewport'), function (vp) { if (vp.__pz) vp.__pz.fit(0); });
+        if (opts.requireSuccess && result.errors) throw new Error(result.errors + ' 个图表未能渲染');
+        return result;
+      });
+    }, function (error) { clearTimeout(timer); throw error; });
   }
   function mmError(block, target, err) {
+    block.dataset.diagramState = 'error';
     block.dataset.view = 'source';
     /* 画不出来 → 已经切到源码视图了，两颗按钮的文案都得跟上：
        切换键要给出回去的路，复制键这时复制的是**源码**（图根本不存在，
@@ -930,6 +1057,8 @@
       try {
         var d = svgDims(svg);
         var clone = svg.cloneNode(true);
+        clone.classList.remove('is-tracing');
+        clone.querySelectorAll('.is-active').forEach(function (node) { node.classList.remove('is-active'); });
         clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
         clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
         clone.setAttribute('width', d.w); clone.setAttribute('height', d.h);
@@ -1050,6 +1179,21 @@
       var el = block.querySelector('pre code');
       copyText(el ? el.textContent : '', copy, 'Copied');
       toast('复制代码成功', 'ok');
+      return;
+    }
+    var flowMode = e.target.closest('.mm-flow-mode');
+    if (flowMode) {
+      var flowBlock = flowMode.closest('.diagram-block'); var renderTarget = flowBlock && flowBlock.querySelector('.diagram-render');
+      var sourceEl = flowBlock && flowBlock.querySelector('.diagram-source code');
+      if (!renderTarget || !sourceEl || !window.DocsmithDiagrams) return;
+      var currentView = flowBlock.dataset.flowView || 'overview'; var nextView = currentView === 'overview' ? 'detail' : 'overview';
+      flowMode.disabled = true; flowMode.textContent = 'Drawing…';
+      Promise.resolve(DocsmithDiagrams.renderFencedDiagram(flowBlock.dataset.diagramLanguage || 'mermaid',
+        prepareMermaidSource(sourceEl.textContent), { view: nextView })).then(function (svgHtml) {
+        mountDiagram(renderTarget, svgHtml && svgHtml.svg ? svgHtml.svg : svgHtml);
+        flowBlock._pngReady = null; flowBlock._pngPromise = null;
+      }).catch(function (error) { toast('切换图表视图失败：' + ((error && error.message) || '未知错误'), 'err'); })
+        .then(function () { flowMode.disabled = false; });
       return;
     }
     var tog = e.target.closest('.mm-toggle');
@@ -1492,6 +1636,10 @@
     "return t;}",
     "function boot(){",
     "var list=document.querySelectorAll('.diagram-render .mm-viewport');",
+    "function trace(vp,svg){var host=vp.parentNode,p=host.querySelector('.mm-relations');if(svg.dataset.flowView==='overview'&&!p){p=document.createElement('aside');p.className='mm-relations';p.hidden=true;host.appendChild(p);}function clear(){svg.classList.remove('is-tracing');var a=svg.querySelectorAll('.is-active');for(var i=0;i<a.length;i++)a[i].classList.remove('is-active');if(p){p.hidden=true;p.innerHTML='';}}",
+    "function bundle(b){clear();svg.classList.add('is-tracing');var id=b.dataset.bundleId,all=svg.querySelectorAll('[data-bundle-id=\"'+id+'\"]');for(var i=0;i<all.length;i++)all[i].classList.add('is-active');var gs=[b.dataset.bundleFrom,b.dataset.bundleTo],names=[];for(var j=0;j<gs.length;j++){var g=svg.querySelector('[data-group-id=\"'+gs[j]+'\"]');if(g){g.classList.add('is-active');names.push(g.dataset.groupTitle||'');}}var ns=(b.dataset.bundleNodes||'').split(',');for(var k=0;k<ns.length;k++){var n=svg.querySelector('[data-node-id=\"'+ns[k]+'\"]');if(n)n.classList.add('is-active');}if(p){var rows=(b.dataset.bundleRelations||'').split('||').filter(Boolean),h='<div class=\"mm-relations-head\"><strong>'+names.join(' → ')+'</strong><span>'+rows.length+' 项</span></div><ul>';for(var q=0;q<rows.length;q++)h+='<li>'+rows[q].replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</li>';p.innerHTML=h+'</ul>';p.hidden=false;}}",
+    "function show(t){var b=t.closest&&t.closest('[data-bundle-id]');if(b&&svg.dataset.flowView==='overview'){bundle(b);return;}var e=t.closest&&t.closest('[data-edge-id]'),n=t.closest&&t.closest('[data-node-id]');if(!e&&!n){clear();return;}clear();svg.classList.add('is-tracing');var id=n&&n.dataset.nodeId,all=svg.querySelectorAll('[data-edge-id]');for(var i=0;i<all.length;i++){var x=all[i],on=e?x.dataset.edgeId===e.dataset.edgeId:x.dataset.edgeFrom===id||x.dataset.edgeTo===id;if(!on)continue;x.classList.add('is-active');var ids=[x.dataset.edgeFrom,x.dataset.edgeTo];for(var j=0;j<ids.length;j++){var q=svg.querySelector('[data-node-id=\"'+ids[j]+'\"]');if(q)q.classList.add('is-active');}}if(n)n.classList.add('is-active');}",
+    "vp.addEventListener('pointerover',function(e){show(e.target);});vp.addEventListener('pointerleave',clear);vp.addEventListener('focusin',function(e){show(e.target);});}",
     "for(var i=0;i<list.length;i++){var vp=list[i];",
     "if(vp.__pz)continue;",
     /* 导出的 HTML 是工作台 DOM 的克隆，里面已经带着一条 .mm-tools（那是
@@ -1499,13 +1647,13 @@
        不先删掉就会出现两条工具栏叠在一起，其中一条还是死的。 */
     "var host=vp.parentNode,old=host.querySelectorAll('.mm-tools');",
     "for(var j=0;j<old.length;j++)old[j].parentNode.removeChild(old[j]);",
-    "if(setup(vp))host.appendChild(tools(vp));}}",
+    "if(setup(vp)){host.appendChild(tools(vp));trace(vp,vp.querySelector('svg'));}}",
     "if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();",
     /* 复制成 PNG：和工作台一样先把 SVG 画到 canvas 上，再写剪贴板。
        写不进去（浏览器不给权限）就退成下载一张图，别让用户点了没反应。 */
     "function svgToPng(svg,cb){try{",
     "var vb=svg.viewBox&&svg.viewBox.baseVal,w=(vb&&vb.width)||300,h=(vb&&vb.height)||200;",
-    "var c=svg.cloneNode(true);c.setAttribute('xmlns','http://www.w3.org/2000/svg');",
+    "var c=svg.cloneNode(true);c.classList.remove('is-tracing');var active=c.querySelectorAll('.is-active');for(var ai=0;ai<active.length;ai++)active[ai].classList.remove('is-active');c.setAttribute('xmlns','http://www.w3.org/2000/svg');",
     "c.setAttribute('width',w);c.setAttribute('height',h);c.style.maxWidth='none';c.style.margin='0';",
     "var s=Math.min(2,8192/w,8192/h,Math.sqrt(26e6/(w*h)));if(!isFinite(s)||s<=0)s=1;s=Math.max(0.15,s);",
     "var xml=new XMLSerializer().serializeToString(c),img=new Image();",
@@ -1558,6 +1706,9 @@
     c.querySelectorAll('[data-chg]').forEach(function (n) { n.removeAttribute('data-chg'); });
     c.querySelectorAll('.rich').forEach(function (n) { n.classList.remove('rich'); });
     c.querySelectorAll('.find-match-block,.find-current-block').forEach(function (n) { n.classList.remove('find-match-block', 'find-current-block'); });
+    c.querySelectorAll('svg.is-tracing').forEach(function (n) { n.classList.remove('is-tracing'); });
+    c.querySelectorAll('svg .is-active').forEach(function (n) { n.classList.remove('is-active'); });
+    c.querySelectorAll('.mm-relations').forEach(function (n) { n.remove(); });
     c.querySelectorAll('.blk').forEach(function (b) {
       var p = b.parentNode; while (b.firstChild) p.insertBefore(b.firstChild, b); p.removeChild(b);
     });
@@ -1733,6 +1884,9 @@
     + 'body{margin:0;background:var(--doc-bg);color:var(--doc-fg);}'
     + '.doc{margin:0 auto;}'
     + '.doc .h-anchor{display:none !important;}'
+    + '.doc .mm-flow-mode{display:none !important;}'
+    /* 独立 HTML 保留概览的 bundle 追踪和关系清单；24 边工程明细只在工作台里
+       按需重渲染，避免导出页携带第二套重复 SVG 与渲染器。 */
     /* 画布要能裁剪（否则拖动时图会溢出到正文上），且默认手型提示可拖 */
     + '.doc .diagram-render{position:relative;}'
     + '.doc .mm-viewport{overflow:hidden; cursor:grab; touch-action:pan-y;}'
@@ -1749,10 +1903,10 @@
     var theme = resolvedTheme();
     var custom = ($('#customCss') || {}).textContent || '';
     var needKatex = !!preview.querySelector('.katex, .math-block');
-    return Promise.all([
+    return whenDiagramsReady(preview, { timeout: 10000 }).then(function () { return Promise.all([
       collectExportCss(),
       needKatex ? buildKatexCss() : Promise.resolve('')
-    ]).then(function (css) {
+    ]); }).then(function (css) {
       return '<!DOCTYPE html>\n<html lang="zh-CN" data-theme="' + theme + '">\n<head>\n'
         + '<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         + '<title>' + escapeHtml(currentName()) + '</title>\n'
@@ -1791,14 +1945,28 @@
     try { if (window.self !== window.top) return false; } catch (e) { return false; }
     return typeof window.print === 'function';
   }
+  function preparePrintDiagrams() {
+    var touched = [];
+    Array.prototype.forEach.call(preview.querySelectorAll('.diagram-block'), function (block) {
+      var svg = block.querySelector('.mm-stage svg,.diagram-render svg'); if (!svg) return;
+      var d = svgDims(svg); var wide = d.w / Math.max(1, d.h) >= 1.45;
+      block.classList.toggle('diagram-print-wide', wide);
+      block.style.setProperty('--diagram-print-ratio', d.w + ' / ' + d.h);
+      touched.push(block);
+    });
+    return function () { touched.forEach(function (block) { block.classList.remove('diagram-print-wide'); block.style.removeProperty('--diagram-print-ratio'); }); };
+  }
   function printInPlace() {
-    if (!canPrintInPlace()) { printViaTab(); return; }
+    if (!canPrintInPlace()) { printViaTab(); return Promise.resolve(); }
+    return whenDiagramsReady(preview, { timeout: 10000 }).then(function () {
+    var restoreDiagrams = preparePrintDiagrams();
     var docName = currentName();
     var prevTitle = document.title;
     var restored = false;
     var restore = function () {
       if (restored) return; restored = true;
       document.title = prevTitle;
+      restoreDiagrams();
       window.removeEventListener('afterprint', restore);
     };
     document.title = docName;              // ← 另存为 PDF 的默认文件名
@@ -1815,6 +1983,7 @@
        再挂一个超时兜底，避免极端情况下标题一直停在文件名上。 */
     setTimeout(restore, 60000);
     restore();
+    });
   }
   /* 兜底：老路子 —— 生成一份自给自足的网页，在真标签页里打开并自动唤起打印。
      只在 window.print() 走不通时用（iframe 挂载、或 print 被禁用）。 */
@@ -1888,18 +2057,6 @@
   function wordCommitEditing() {
     closeBlockEditor(true); endCellEdit(true);
     if (ROOT.dataset.mode === 'source') setMode('read');
-  }
-  function wordWaitForDiagrams(timeout) {
-    return new Promise(function (resolve) {
-      var started = Date.now();
-      (function check() {
-        var pending = $$('.diagram-block', preview).some(function (b) {
-          return !b.querySelector('.mm-stage svg,.diagram-render svg,.mm-error');
-        });
-        if (!pending || Date.now() - started >= timeout) { resolve(); return; }
-        setTimeout(check, 90);
-      })();
-    });
   }
   function wordBlobBytes(blob) {
     if (blob.arrayBuffer) return blob.arrayBuffer();
@@ -2273,7 +2430,7 @@
     wordExporting = true; wordSetBusy(true, 'Preparing...');
     try {
       wordCommitEditing();
-      await wordWaitForDiagrams(9000);
+      await whenDiagramsReady(preview, { timeout: 9000 });
       var D = window.docx, ctx = {
         D: D, accent: wordAccent(), warnings: [], imageCache: {}, numbering: [], listCounter: 0,
         mediaTotal: preview.querySelectorAll('img,.diagram-block').length, mediaDone: 0
@@ -5310,6 +5467,8 @@
     },
 
     /* 导出：四种格式各自的实现，由 export-menu.js 组装成菜单 */
+    whenDiagramsReady: function (opts) { return whenDiagramsReady(preview, opts); },
+    buildStandaloneHtml: function (opts) { return buildStandalone(opts); },
     exportWord: function () { return exportWord(); },
     exportStandaloneHtml: function () {
       /* 现在要先把几份样式表读回来才能拼出成品，所以是异步的 —— 给句提示，
@@ -5348,7 +5507,7 @@
        真的不可用时才走 —— 见下面的 try/catch 和 canPrintInPlace()。 */
     exportPdf: function () {
       if (!currentId) { toast('先打开一份文档', 'err'); return; }
-      printInPlace();
+      return printInPlace().catch(function (e) { toast('准备打印失败：' + ((e && e.message) || '未知错误'), 'err'); });
     },
     hasDoc: function () { return !!currentId; },
 

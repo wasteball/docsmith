@@ -88,6 +88,12 @@ export function inlineStyle(scheme = currentScheme()) {
 .dg-edge{stroke:${c.textMute};stroke-width:1.35;fill:none;opacity:.72}
 .dg-edge.dashed{stroke-dasharray:5 4}
 .dg-edge.thick{stroke-width:2.4;opacity:.82}
+.dg-edge-casing{stroke:${c.bg};stroke-width:4.6;fill:none;opacity:.96;pointer-events:none}
+.dg-edge-hit{stroke:transparent;stroke-width:14;fill:none;pointer-events:stroke}
+.dg-flow .dg-edge,.dg-flow .dg-shape{transition:opacity .14s,stroke .14s,stroke-width .14s}
+.dg-flow.is-tracing .dg-edge:not(.is-active),.dg-flow.is-tracing .dg-shape:not(.is-active){opacity:.16}
+.dg-flow.is-tracing .dg-edge.is-active{opacity:1;stroke:${c.accent};stroke-width:2.3}
+.dg-flow.is-tracing .dg-shape.is-active{opacity:1;stroke-width:2.2}
 .dg-arrow{fill:${c.textMute};opacity:.78}
 .dg-grid{stroke:${c.border};stroke-width:1}
 .dg-chip-bg{fill:${c.bg};stroke:${c.border};stroke-width:1}
@@ -95,6 +101,23 @@ export function inlineStyle(scheme = currentScheme()) {
 .dg-group{fill:${mix(c.accent, 5, c.bg)};stroke:${c.borderStrong};stroke-width:1}
 .dg-group-title{fill:${c.textDim};font-size:12px;font-weight:600}
 .dg-terminal{fill:${c.text}}
+.dg-flow-overview .dg-overview-group{fill:${mix(c.accent,4,c.bg)};stroke:${c.borderStrong};stroke-width:1.25}
+.dg-flow-overview .dg-overview-title{fill:${c.text};font-size:14px;font-weight:700}
+.dg-flow-overview .dg-group-count{fill:${c.textMute};font-size:11px}
+.dg-flow-overview .dg-overview-node{fill:${c.bg};stroke:${c.borderStrong};stroke-width:1.2}
+.dg-flow-overview .dg-local-edge{stroke:${c.textMute};stroke-width:1.15;opacity:.48}
+.dg-flow-overview .dg-bundle{fill:none;stroke:${c.accent};stroke-width:2.35;opacity:.72}
+.dg-flow-overview .dg-bundle.is-return{stroke-dasharray:7 5;opacity:.62}
+.dg-flow-overview .dg-bundle-hit{fill:none;stroke:transparent;stroke-width:18;pointer-events:stroke;cursor:pointer}
+.dg-flow-overview .dg-bundle-label{cursor:pointer}
+.dg-flow-overview .dg-bundle-label rect{fill:${c.bg};stroke:${mix(c.accent,38,c.border)};stroke-width:1}
+.dg-flow-overview .dg-bundle-label text{fill:${c.textDim};font-size:11.5px;font-weight:650}
+.dg-flow-overview .dg-bundle-label.is-return rect{stroke-dasharray:4 3}
+.dg-flow-overview.is-tracing .dg-bundle:not(.is-active),.dg-flow-overview.is-tracing .dg-bundle-label:not(.is-active),.dg-flow-overview.is-tracing .dg-overview-group:not(.is-active),.dg-flow-overview.is-tracing .dg-overview-node:not(.is-active),.dg-flow-overview.is-tracing .dg-local-edge:not(.is-active){opacity:.13}
+.dg-flow-overview.is-tracing .dg-bundle.is-active{opacity:1;stroke-width:3.2}
+.dg-flow-overview.is-tracing .dg-bundle-label.is-active,.dg-flow-overview.is-tracing .dg-overview-group.is-active,.dg-flow-overview.is-tracing .dg-overview-node.is-active{opacity:1}
+.dg-flow-overview .dg-bundle:focus-visible,.dg-flow-overview .dg-bundle-label:focus-visible{outline:none}
+.dg-flow-overview .dg-bundle:focus-visible{stroke-width:3.4;opacity:1}
 .dg-bar{opacity:.85}
 .dg-bar.done{opacity:.42}
 .dg-bar.crit{fill:${c.danger};opacity:.9}
@@ -119,6 +142,8 @@ export function inlineStyle(scheme = currentScheme()) {
 .dg-actor{fill:${c.surface};stroke:${c.accent};stroke-width:1.3}
 .dg-lifeline{stroke:${c.borderStrong};stroke-width:1;stroke-dasharray:4 4}
 .dg-seq-label{fill:${c.textDim};font-size:11.5px}
+.dg-note{fill:${mix('#ffd33d', scheme === 'dark' ? 18 : 32, c.bg)};stroke:${scheme === 'dark' ? '#d7b841' : '#d9a900'};stroke-width:1.3}
+.dg-note-text{fill:${c.text};font-size:11.5px;font-weight:600}
 .dg-slice{stroke:${c.bg};stroke-width:1.5}
 ${seriesRules}
 </style>`;

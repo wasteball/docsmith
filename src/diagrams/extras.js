@@ -5,7 +5,7 @@
  * 代码各开一个模块。
  * ===================================================================== */
 import {
-  indentedLines, cleanLines, esc, cleanLabel, wrap, textWidth,
+  indentedLines, cleanLines, esc, cleanLabel, wrap, wrapToWidth, textWidth, textBlockSize, unionBounds,
   svgOpen, arrowDefs, rect, line, path, text, textBlock, round, uid, seriesClass,
 } from './base.js';
 import { inlineStyle } from './theme.js';
@@ -195,81 +195,168 @@ export function renderQuadrant(src) {
  * 时序图
  * ==================================================================== */
 
-export function renderSequence(src) {
-  const lines = cleanLines(src).slice(1);
+export function parseSequence(src) {
   const actors = [];
-  const actorSet = new Map();
-  const steps = [];
-
-  const addActor = (name) => {
-    const key = name.trim();
-    if (!actorSet.has(key)) {
-      actorSet.set(key, actors.length);
-      actors.push({ name: cleanLabel(key) });
-    }
-    return actorSet.get(key);
+  const actorById = new Map();
+  const events = [];
+  const warnings = [];
+  const addActor = (rawId, label) => {
+    const id = String(rawId || '').trim();
+    if (!actorById.has(id)) {
+      actorById.set(id, actors.length);
+      actors.push({ id, label: cleanLabel(label || id), order: actors.length });
+    } else if (label) actors[actorById.get(id)].label = cleanLabel(label);
+    return actorById.get(id);
   };
 
-  for (const raw of lines) {
+  for (const raw of cleanLines(src).slice(1)) {
     const ln = raw.trim();
     let m;
-    if ((m = /^(?:participant|actor)\s+(.+?)(?:\s+as\s+(.+))?$/i.exec(ln))) {
-      const i = addActor(m[1]);
-      if (m[2]) actors[i].name = cleanLabel(m[2]);
+    if ((m = /^(?:participant|actor)\s+([^\s]+)(?:\s+as\s+(.+))?$/i.exec(ln))) {
+      addActor(m[1], m[2]);
       continue;
     }
-    if (/^(autonumber|loop|end|alt|else|opt|par|and|rect|activate|deactivate|note)\b/i.test(ln)) continue;
-
+    if ((m = /^note\s+(left|right)\s+of\s+([^:]+)\s*:\s*(.*)$/i.exec(ln))) {
+      events.push({ type: 'note', placement: m[1].toLowerCase(), actors: [addActor(m[2])], label: cleanLabel(m[3]) });
+      continue;
+    }
+    if ((m = /^note\s+over\s+([^:]+)\s*:\s*(.*)$/i.exec(ln))) {
+      events.push({ type: 'note', placement: 'over', actors: m[1].split(',').map((id) => addActor(id)), label: cleanLabel(m[2]) });
+      continue;
+    }
     m = /^(.+?)\s*(-?->>?|--?\)|-?-x)\s*(.+?)\s*:\s*(.*)$/.exec(ln);
-    if (!m) continue;
-    steps.push({
-      from: addActor(m[1]),
-      to: addActor(m[3]),
-      dashed: /^--/.test(m[2]),
-      label: cleanLabel(m[4]),
-    });
+    if (m) {
+      events.push({ type: 'message', from: addActor(m[1]), to: addActor(m[3]), arrow: m[2],
+        dashed: /^--/.test(m[2]), label: cleanLabel(m[4]) });
+      continue;
+    }
+    if (/^(autonumber|loop|end|alt|else|opt|par|and|rect|activate|deactivate)\b/i.test(ln)) continue;
+    warnings.push(ln);
   }
-  if (!actors.length || !steps.length) throw new Error('时序图里没有可画的消息');
+  if (!actors.length || !events.some((event) => event.type === 'message')) throw new Error('时序图里没有可画的消息');
+  return { actors, events, warnings };
+}
 
-  const COL = Math.max(150, Math.min(230,
-    Math.max(...steps.map((s) => textWidth(s.label, 11.5))) + 60));
-  const ROW = 44;
-  const TOP = 60;
-  const PAD = 24;
-  const W = PAD * 2 + actors.length * COL;
-  const H = TOP + steps.length * ROW + 60;
-
-  const cx = (i) => PAD + i * COL + COL / 2;
-  const id = uid('sq');
-  const out = [svgOpen(W, H, 'dg-sequence'), arrowDefs(id), inlineStyle()];
-
-  actors.forEach((a, i) => {
-    const w = Math.min(COL - 20, textWidth(a.name, 12.5) + 26);
-    out.push(rect(cx(i) - w / 2, 16, w, 32, 7, 'dg-actor'));
-    out.push(text(cx(i), 36, a.name, 'dg-text'));
-    out.push(line(cx(i), 48, cx(i), H - 40, 'dg-lifeline'));
-    // 底部再放一个，长图不用回头找是谁
-    out.push(rect(cx(i) - w / 2, H - 38, w, 30, 7, 'dg-actor'));
-    out.push(text(cx(i), H - 18, a.name, 'dg-text'));
+export function layoutSequence(model) {
+  const PAD = 24; const ACTOR_GAP = 34; const FONT = 11.5; const LH = 17;
+  const actors = model.actors.map((actor) => {
+    const lines = wrapToWidth(actor.label, 180, 12.5);
+    const size = textBlockSize(lines, 12.5, 18, 14, 8);
+    return { ...actor, lines, w: Math.max(76, size.w), h: Math.max(36, size.h) };
+  });
+  const gaps = Array(Math.max(0, actors.length - 1)).fill(0).map((_, i) =>
+    actors[i].w / 2 + actors[i + 1].w / 2 + ACTOR_GAP);
+  const eventData = model.events.map((event) => {
+    const maxWidth = event.type === 'note' ? 460 : 500;
+    const lines = wrapToWidth(event.label, maxWidth, FONT);
+    const size = textBlockSize(lines, FONT, LH, event.type === 'note' ? 14 : 0, event.type === 'note' ? 9 : 0);
+    return { ...event, lines, textW: size.w, textH: size.h };
   });
 
-  steps.forEach((s, i) => {
-    const y = TOP + i * ROW + 20;
-    const x1 = cx(s.from);
-    const x2 = cx(s.to);
-    if (s.from === s.to) {
-      out.push(path(`M${round(x1)} ${round(y)} C${round(x1 + 46)} ${round(y)}, ${round(x1 + 46)} ${round(y + 22)}, ${round(x1 + 6)} ${round(y + 22)}`,
-        `dg-edge${s.dashed ? ' dashed' : ''}`, ` marker-end="url(#${id}-arrow)"`));
-      out.push(text(x1 + 54, y + 4, s.label, 'dg-seq-label', 'start'));
-    } else {
-      const dirSign = x2 > x1 ? -1 : 1;
-      out.push(line(x1, y, x2 + dirSign * 6, y, `dg-edge${s.dashed ? ' dashed' : ''}`,
-        ` marker-end="url(#${id}-arrow)"`));
-      out.push(text((x1 + x2) / 2, y - 8, s.label, 'dg-seq-label'));
+  const requireSpan = (a, b, wanted) => {
+    const left = Math.min(a, b); const right = Math.max(a, b);
+    if (right <= left) return;
+    const have = gaps.slice(left, right).reduce((sum, value) => sum + value, 0);
+    if (have >= wanted) return;
+    const extra = (wanted - have) / (right - left);
+    for (let i = left; i < right; i += 1) gaps[i] += extra;
+  };
+  eventData.forEach((event) => {
+    if (event.type === 'message' && event.from !== event.to) requireSpan(event.from, event.to, event.textW + 34);
+    if (event.type === 'note' && event.placement === 'over' && event.actors.length > 1) {
+      requireSpan(event.actors[0], event.actors[event.actors.length - 1], event.textW + 22);
     }
   });
 
-  out.push('</svg>');
+  const centers = [0];
+  for (let i = 0; i < gaps.length; i += 1) centers.push(centers[i] + gaps[i]);
+  const topActorH = Math.max(...actors.map((actor) => actor.h));
+  let y = PAD + topActorH + 24;
+  let bounds = null;
+  const placed = eventData.map((event) => {
+    if (event.type === 'note') {
+      const w = Math.max(90, event.textW); const h = Math.max(38, event.textH);
+      let cx;
+      if (event.placement === 'over') cx = event.actors.reduce((sum, index) => sum + centers[index], 0) / event.actors.length;
+      else if (event.placement === 'left') cx = centers[event.actors[0]] - w / 2 - 20;
+      else cx = centers[event.actors[0]] + w / 2 + 20;
+      const item = { ...event, x: cx - w / 2, y, w, h, cx, cy: y + h / 2 };
+      bounds = unionBounds(bounds, item); y += h + 18; return item;
+    }
+    const self = event.from === event.to;
+    const rowH = Math.max(46, event.textH + (self ? 34 : 22));
+    const arrowY = y + event.textH + 8;
+    if (!self) {
+      const x1 = centers[event.from]; const x2 = centers[event.to]; const cx = (x1 + x2) / 2;
+      const item = { ...event, x1, x2, cx, labelY: y + event.textH / 2, arrowY, h: rowH };
+      bounds = unionBounds(bounds, { x: cx - event.textW / 2, y, w: event.textW, h: event.textH });
+      bounds = unionBounds(bounds, { x: Math.min(x1, x2) - 8, y: arrowY - 8, w: Math.abs(x2 - x1) + 16, h: 16 });
+      y += rowH; return item;
+    }
+    const actor = event.from;
+    const rightRoom = actor < actors.length - 1 ? gaps[actor] / 2 : 0;
+    const leftRoom = actor > 0 ? gaps[actor - 1] / 2 : 0;
+    const loopW = 48;
+    let side = actor === actors.length - 1 ? -1 : actor === 0 ? 1 : (rightRoom >= leftRoom ? 1 : -1);
+    const need = event.textW + loopW + 18;
+    if (side > 0 && rightRoom < need && leftRoom > rightRoom) side = -1;
+    if (side < 0 && leftRoom < need && rightRoom > leftRoom) side = 1;
+    const anchor = centers[actor];
+    const labelX = side > 0 ? anchor + loopW + 10 : anchor - loopW - 10;
+    const item = { ...event, side, anchor, loopW, labelX, labelY: y + event.textH / 2,
+      arrowY, h: rowH };
+    bounds = unionBounds(bounds, { x: side > 0 ? labelX : labelX - event.textW, y, w: event.textW, h: event.textH });
+    bounds = unionBounds(bounds, { x: side > 0 ? anchor - 8 : anchor - loopW - 8, y: arrowY - 8, w: loopW + 16, h: 38 });
+    y += rowH; return item;
+  });
+
+  const bottomY = y + 12; const bottomActorH = topActorH;
+  actors.forEach((actor, i) => {
+    bounds = unionBounds(bounds, { x: centers[i] - actor.w / 2, y: PAD, w: actor.w, h: actor.h });
+    bounds = unionBounds(bounds, { x: centers[i] - actor.w / 2, y: bottomY, w: actor.w, h: bottomActorH });
+  });
+  const content = bounds || { x0: 0, y0: 0, x1: 1, y1: 1 };
+  const shiftX = PAD - content.x0;
+  const width = content.x1 - content.x0 + PAD * 2;
+  const height = bottomY + bottomActorH + PAD;
+  return { actors, events: placed, centers, shiftX, width, height, topActorH, bottomY };
+}
+
+export function renderSequence(src) {
+  const model = parseSequence(src);
+  const layout = layoutSequence(model);
+  const id = uid('sq');
+  const out = [svgOpen(layout.width, layout.height, 'dg-sequence'), arrowDefs(id), inlineStyle(),
+    `<g transform="translate(${round(layout.shiftX)} 0)">`];
+  layout.actors.forEach((actor, i) => {
+    const cx = layout.centers[i];
+    out.push(rect(cx - actor.w / 2, 24, actor.w, actor.h, 7, 'dg-actor'));
+    out.push(textBlock(cx, 24 + actor.h / 2, actor.lines, 'dg-text', 18));
+    out.push(line(cx, 24 + actor.h, cx, layout.bottomY, 'dg-lifeline'));
+    out.push(rect(cx - actor.w / 2, layout.bottomY, actor.w, actor.h, 7, 'dg-actor'));
+    out.push(textBlock(cx, layout.bottomY + actor.h / 2, actor.lines, 'dg-text', 18));
+  });
+  layout.events.forEach((event) => {
+    if (event.type === 'note') {
+      out.push(rect(event.x, event.y, event.w, event.h, 5, 'dg-note'));
+      out.push(textBlock(event.cx, event.cy, event.lines, 'dg-note-text', 17));
+      return;
+    }
+    const cls = `dg-edge${event.dashed ? ' dashed' : ''}`;
+    if (event.from !== event.to) {
+      const end = event.x2 + (event.x2 > event.x1 ? -6 : 6);
+      out.push(line(event.x1, event.arrowY, end, event.arrowY, cls, ` marker-end="url(#${id}-arrow)"`));
+      out.push(textBlock(event.cx, event.labelY, event.lines, 'dg-seq-label', 17));
+      return;
+    }
+    const side = event.side; const x = event.anchor; const outer = x + side * event.loopW; const end = x + side * 6;
+    out.push(path(`M${round(x)} ${round(event.arrowY)} C${round(outer)} ${round(event.arrowY)}, ${round(outer)} ${round(event.arrowY + 24)}, ${round(end)} ${round(event.arrowY + 24)}`,
+      cls, ` marker-end="url(#${id}-arrow)"`));
+    const anchor = side > 0 ? 'start' : 'end';
+    const top = event.labelY - ((event.lines.length - 1) * 17) / 2;
+    event.lines.forEach((label, index) => out.push(text(event.labelX, top + index * 17 + 4.5, label, 'dg-seq-label', anchor)));
+  });
+  out.push('</g></svg>');
   return out.join('');
 }
 

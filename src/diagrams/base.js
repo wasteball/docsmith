@@ -56,6 +56,62 @@ export function wrap(text, maxUnits = 26) {
   return out.length ? out : [''];
 }
 
+/**
+ * \u6309\u4f30\u7b97\u50cf\u7d20\u5bbd\u5ea6\u6298\u884c\u3002\u663e\u5f0f\u6362\u884c\u6c38\u8fdc\u4fdd\u7559\uff1b\u4e2d\u6587\u9010\u5b57\u65ad\uff0c\u82f1\u6587\u4f18\u5148\u6309\u8bcd\u65ad\uff0c
+ * \u5355\u4e2a\u8d85\u957f token \u4e5f\u4f1a\u7ee7\u7eed\u62c6\u5f00\uff0c\u4e0d\u80fd\u56e0\u4e3a\u4e00\u4e2a URL \u6216\u7f16\u53f7\u628a SVG \u6491\u51fa\u753b\u5e03\u3002
+ */
+export function wrapToWidth(text, maxWidth, fontSize = 13) {
+  const limit = Math.max(24, Number(maxWidth) || 240);
+  const widthOf = (value) => textWidth(plainLabel(value), fontSize) * 1.08;
+  const out = [];
+  const pushToken = (token, state) => {
+    if (!token) return;
+    if (widthOf(token) <= limit) { state.parts.push(token); return; }
+    let chunk = '';
+    for (const ch of token) {
+      if (chunk && widthOf(chunk + ch) > limit) { state.parts.push(chunk); chunk = ch; }
+      else chunk += ch;
+    }
+    if (chunk) state.parts.push(chunk);
+  };
+  for (const para of String(text ?? '').split('\n')) {
+    if (!para) { out.push(''); continue; }
+    const raw = para.match(/[\u2e80-\u9fff\uff00-\uffef\u3040-\u30ff\uac00-\ud7af]|[^\s\u2e80-\u9fff\uff00-\uffef\u3040-\u30ff\uac00-\ud7af]+|\s+/g) || [para];
+    const state = { parts: [] };
+    raw.forEach((token) => pushToken(token, state));
+    let cur = '';
+    for (const token of state.parts) {
+      const space = /^\s+$/.test(token);
+      const next = cur + token;
+      if (!space && cur.trim() && widthOf(next) > limit) {
+        out.push(cur.trim());
+        cur = token;
+      } else if (!(space && !cur)) cur = next;
+    }
+    if (cur.trim()) out.push(cur.trim());
+  }
+  return out.length ? out : [''];
+}
+
+export function textBlockSize(lines, fontSize = 13, lineHeight = 18, padX = 0, padY = 0) {
+  const values = lines?.length ? lines : [''];
+  const width = Math.max(0, ...values.map((line) => textWidth(plainLabel(line), fontSize) * 1.08));
+  return { w: width + padX * 2, h: values.length * lineHeight + padY * 2 };
+}
+
+export function unionBounds(bounds, box) {
+  if (!box) return bounds;
+  const x0 = Number(box.x0 ?? box.x ?? 0);
+  const y0 = Number(box.y0 ?? box.y ?? 0);
+  const x1 = Number(box.x1 ?? (x0 + Number(box.w || 0)));
+  const y1 = Number(box.y1 ?? (y0 + Number(box.h || 0)));
+  if (![x0, y0, x1, y1].every(Number.isFinite)) return bounds;
+  if (!bounds) return { x0, y0, x1, y1 };
+  bounds.x0 = Math.min(bounds.x0, x0); bounds.y0 = Math.min(bounds.y0, y0);
+  bounds.x1 = Math.max(bounds.x1, x1); bounds.y1 = Math.max(bounds.y1, y1);
+  return bounds;
+}
+
 export function esc(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

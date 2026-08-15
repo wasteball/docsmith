@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Docsmith diagram workspace smoke</title><style>html,body,iframe{width:100%;height:100%;margin:0;border:0}</style></head>
+<body><div id="mount"></div>
+<script type="module">
+import { sequenceLongMessagesWithNotes, flowchartSixSiblingSubgraphs } from './fixtures/mermaid-cases.mjs';
+const source = '# Mermaid 精确回归\n\n```mermaid\n' + sequenceLongMessagesWithNotes + '\n```\n\n```mermaid\n' + flowchartSixSiblingSubgraphs + '\n```';
+const mount = document.querySelector('#mount');
+const fail = (message) => { window.__workspaceSmoke={error:String(message)};document.body.dataset.rendered='error';document.title=String(message); };
+const frame = document.createElement('iframe'); frame.id='workspace'; frame.src='../src/views/markdown/index.html';
+frame.addEventListener('load', () => {
+  const win=frame.contentWindow, doc=frame.contentDocument, started=Date.now();
+  (function wait(){
+    if(win.MDW&&win.DocsmithDiagrams){ run(); return; }
+    if(Date.now()-started>15000) return fail('工作台没有启动');
+    setTimeout(wait,60);
+  })();
+  async function run(){
+    try{
+      win.MDW.setText(source);
+      const ready=await win.MDW.whenDiagramsReady({timeout:20000,requireSuccess:true});
+      const blocks=[...doc.querySelectorAll('.diagram-block')];
+      const svgs=blocks.map((block)=>block.querySelector('.mm-stage svg'));
+      if(blocks.length!==2||svgs.some((svg)=>!svg)) throw new Error('工作台没有生成两张图');
+      if(blocks.some((block)=>block.dataset.diagramState!=='ready')) throw new Error('图表 readiness 状态错误');
+      if(svgs[0].querySelectorAll('.dg-note').length!==8) throw new Error('工作台 Note 数量错误');
+      if(svgs[1].querySelectorAll('.dg-group').length!==6) throw new Error('工作台分组数量错误');
+      const overview=svgs[1], bundle=overview.querySelector('.dg-bundle-hit'), node=overview.querySelector('[data-node-id="D1"]');
+      if(overview.dataset.flowView!=='overview'||overview.querySelectorAll('.dg-bundle').length!==8) throw new Error('工作台没有默认生成系统概览');
+      bundle.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));
+      if(!overview.classList.contains('is-tracing')||!overview.querySelector('.dg-bundle.is-active')) throw new Error('工作台关系束追踪没有生效');
+      const relationPanel=blocks[1].querySelector('.mm-relations');
+      if(!relationPanel||relationPanel.hidden||!relationPanel.textContent.includes('→')) throw new Error('关系清单没有显示');
+      bundle.dispatchEvent(new PointerEvent('pointerleave',{bubbles:true}));
+      node.focus();node.dispatchEvent(new FocusEvent('focusin',{bubbles:true}));
+      if(!overview.classList.contains('is-tracing')) throw new Error('工作台节点追踪没有生效');
+      const mode=blocks[1].querySelector('.mm-flow-mode');
+      if(!mode||mode.textContent!=='View details') throw new Error('概览/明细切换没有生成');
+      mode.click();
+      const detailStart=Date.now();while(blocks[1].dataset.flowView!=='detail'){if(Date.now()-detailStart>20000)throw new Error('切换明细超时');await new Promise(r=>setTimeout(r,50));}
+      const detail=blocks[1].querySelector('.mm-stage svg');
+      if(detail.dataset.flowView!=='detail'||detail.querySelectorAll('path.dg-edge:not(.dg-edge-hit)').length!==24) throw new Error('明细视图没有保留 24 条原始关系');
+      mode.click();
+      const overviewStart=Date.now();while(blocks[1].dataset.flowView!=='overview'){if(Date.now()-overviewStart>20000)throw new Error('切回概览超时');await new Promise(r=>setTimeout(r,50));}
+      const finalOverview=blocks[1].querySelector('.mm-stage svg');
+      const html=await win.MDW.buildStandaloneHtml();
+      if(html.includes('>正在画图…<')||html.includes('>正在画图...<')) throw new Error('独立 HTML 仍包含加载占位');
+      if(html.includes('class="dg dg-flow is-tracing')||html.includes('class="dg-edge is-active')) throw new Error('独立 HTML 带出了临时追踪状态');
+      if(!html.includes('data-edge-id=')||!html.includes('data-bundle-id=')||!html.includes('话术应解释派送时核实地址')||!html.includes('短信与企业微信')) throw new Error('独立 HTML 图表内容不完整');
+      if(finalOverview.querySelectorAll('.dg-bundle').length!==8||finalOverview.querySelectorAll('.dg-edge').length!==8) throw new Error('最终概览关系数量错误');
+      if(finalOverview.querySelectorAll('.dg-edge-casing').length) throw new Error('概览不应继续携带 24 条明细边 casing');
+      const result={ready:ready.ready,states:blocks.map((b)=>b.dataset.diagramState),notes:8,groups:6,htmlReady:true,
+        flowView:finalOverview.dataset.flowView,bundles:8,localEdges:8,detailEdges:24,
+        engines:[svgs[0].dataset.layoutEngine||'sequence',finalOverview.dataset.flowView],viewports:blocks.every((b)=>!!b.querySelector('.mm-viewport'))};
+      window.__workspaceSmoke=result;document.body.dataset.rendered='true';document.title=JSON.stringify(result);
+    }catch(error){fail(error.message);}
+  }
+});
+mount.append(frame);
+</script></body></html>

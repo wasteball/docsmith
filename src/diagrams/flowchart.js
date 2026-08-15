@@ -6,7 +6,7 @@
  * 或布局失败时，仍回退到本地轻量布局器，保证离线打开不会丢图。
  * ===================================================================== */
 import {
-  wrap, textWidth, esc, cleanLabel, cleanLines, plainLabel,
+  wrap, wrapToWidth, textWidth, esc, cleanLabel, cleanLines, plainLabel,
   svgOpen, arrowDefs, textBlock, rect, line, path, polygon, chip, chipSize, uid, round, curveD, userClass,
 } from './base.js';
 import { layered, tree, isTree, anchors, selfLoop } from './layout.js';
@@ -27,8 +27,8 @@ const SHAPES = [
 ];
 
 function nodeSize(label, shape) {
-  const lines = wrap(label, shape === 'diamond' ? 18 : 26);
-  const textW = lines.reduce((a, l) => Math.max(a, textWidth(plainLabel(l))), 0);
+  const lines = wrapToWidth(label, shape === 'diamond' ? 250 : 260, 13);
+  const textW = lines.reduce((a, l) => Math.max(a, textWidth(plainLabel(l)) * 1.08), 0);
   let w = Math.max(66, textW + 40);
   let h = Math.max(40, lines.length * 19 + 24);
   if (shape === 'diamond') { w += 24; h += 12; }
@@ -75,9 +75,9 @@ function styleExtra(style, mode = 'shape') {
   return declarations.length ? `style="${esc(declarations.join(';'))}"` : '';
 }
 
-function drawShape(shape, p, cls = 'dg-shape', style = null) {
+function drawShape(shape, p, cls = 'dg-shape', style = null, extra = '') {
   const { x, y, w, h } = p;
-  const shapeExtra = styleExtra(style);
+  const shapeExtra = `${styleExtra(style)} ${extra}`.trim();
   const strokeExtra = styleExtra(style, 'stroke');
   switch (shape) {
     case 'diamond':
@@ -422,19 +422,20 @@ function buildElkGraph(g, kind) {
       'elk.layered.spacing.nodeNodeBetweenLayers': '58',
       'elk.layered.cycleBreaking.strategy': 'GREEDY_MODEL_ORDER',
       'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
-      'elk.layered.crossingMinimization.forceNodeModelOrder': 'true',
     },
   });
 
   const rootGroups = g.groups.filter((group) => !group.parentId).map(groupOf);
   const loose = g.order.filter((id) => !hierarchy.owner.get(id)).map((id) => nodeOf(id, 'root')).filter(Boolean);
+  const largeCompound = rootGroups.length >= 4 && g.order.length >= 18;
   const layoutOptions = {
     'elk.algorithm': 'layered',
-    'elk.direction': directionOf(g.dir),
+    'elk.direction': directionOf(largeCompound && g.dir === 'TD' ? 'LR' : g.dir),
     'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
     'elk.edgeRouting': 'ORTHOGONAL',
-    'elk.spacing.nodeNode': isState ? '46' : '42',
-    'elk.layered.spacing.nodeNodeBetweenLayers': isState ? '48' : '72',
+    'elk.spacing.nodeNode': isState ? '46' : (largeCompound ? '64' : '42'),
+    'elk.spacing.componentComponent': largeCompound ? '86' : '48',
+    'elk.layered.spacing.nodeNodeBetweenLayers': isState ? '48' : (largeCompound ? '92' : '72'),
     'elk.spacing.edgeNode': isState ? '28' : '24',
     'elk.spacing.edgeEdge': isState ? '18' : '14',
     'elk.spacing.edgeLabel': isState ? '12' : '10',
@@ -702,8 +703,14 @@ function renderLaidOut(g, L, kind) {
     labelPos.forEach((p) => { p.x += padLeft; p.y += padTop; });
   }
   const id = uid('fc');
-  const out = [svgOpen(L.width + padLeft + padRight, L.height + padTop + padBottom,
-    kind === 'state' ? 'dg-state' : 'dg-flow'), inlineStyle(), arrowDefs(id)];
+  const engine = L.engine || 'local';
+  const quality = L.quality || {};
+  const qualityAttrs = Object.entries(quality).filter(([, value]) => Number.isFinite(value))
+    .map(([key, value]) => ` data-routing-${esc(key)}="${round(value)}"`).join('');
+  const svgRoot = svgOpen(L.width + padLeft + padRight, L.height + padTop + padBottom,
+    kind === 'state' ? 'dg-state' : 'dg-flow').replace(' role="img"',
+    ` data-layout-engine="${esc(engine)}"${qualityAttrs} role="img"`);
+  const out = [svgRoot, inlineStyle(), arrowDefs(id)];
   const groupById = new Map(g.groups.map((group) => [group.id, group]));
 
   for (const f of L.frames || []) {
@@ -728,7 +735,12 @@ function renderLaidOut(g, L, kind) {
         const isLast = index === sections.length - 1;
         const markers = (isLast ? marker : '')
           + (isFirst && e.both ? ` marker-start="url(#${id}-arrow)"` : '');
-        out.push(path(orthogonalPath(points), cls, markers));
+        const edgeData = ` data-edge-id="${esc(e.id)}" data-edge-from="${esc(e.from)}" data-edge-to="${esc(e.to)}"`;
+        /* 白色 underlay 在不可避免的交叉处形成清楚断口：这是两条线跨过，不是
+           一个连接点。它同时让打印/PDF/PNG 保持可读，不依赖 hover。 */
+        out.push(path(orthogonalPath(points), 'dg-edge-casing', edgeData));
+        out.push(path(orthogonalPath(points), 'dg-edge-hit', edgeData));
+        out.push(path(orthogonalPath(points), cls, markers + edgeData));
       });
       if (e.label) {
         const m = labelPos.get(e.id) || midpointOf(sections.flat());
@@ -754,7 +766,8 @@ function renderLaidOut(g, L, kind) {
     if (!p || !n) continue;
     const authored = g.styles?.get(nid);
     const authoredClass = authoredClasses(g, nid);
-    out.push(drawShape(n.shape, p, `dg-shape${authoredClass ? ` ${authoredClass}` : ''}`, authored));
+    out.push(drawShape(n.shape, p, `dg-shape${authoredClass ? ` ${authoredClass}` : ''}`, authored,
+      `data-node-id="${esc(nid)}" tabindex="0"`));
     if (n.lines?.length && n.shape !== 'terminal') {
       out.push(textBlock(p.x + p.w / 2, p.y + p.h / 2, n.lines, 'dg-text', 18,
         styleExtra(authored, 'text')));
@@ -764,7 +777,490 @@ function renderLaidOut(g, L, kind) {
   return out.join('');
 }
 
+function permutations(items) {
+  if (items.length > 7) return [items.slice()];
+  const out = [];
+  const visit = (prefix, rest) => {
+    if (!rest.length) { out.push(prefix); return; }
+    rest.forEach((item, index) => visit(prefix.concat(item), rest.slice(0, index).concat(rest.slice(index + 1))));
+  };
+  visit([], items.slice());
+  return out;
+}
+
+/* 根级复合图按“入口 → 核心处理带 → 下游”排成二维架构图。先收缩 SCC，
+   但 SCC 内的分组沿横向展开，而不是塞进一列：闭环仍然清楚，整图也不会被
+   拉成 3500px 长链。每个 band 的顺序再按真实跨组边做确定性优化。 */
+function layoutCompoundRoot(nodes, order, edges, dir = 'TD') {
+  const sourceIndex = new Map(order.map((id, i) => [id, i]));
+  const outgoing = new Map(order.map((id) => [id, []]));
+  edges.forEach((edge) => outgoing.get(edge.from)?.push(edge.to));
+  let seq = 0; const index = new Map(); const low = new Map(); const stack = []; const active = new Set(); const components = [];
+  const visit = (id) => {
+    index.set(id, seq); low.set(id, seq); seq += 1; stack.push(id); active.add(id);
+    (outgoing.get(id) || []).forEach((to) => {
+      if (!index.has(to)) { visit(to); low.set(id, Math.min(low.get(id), low.get(to))); }
+      else if (active.has(to)) low.set(id, Math.min(low.get(id), index.get(to)));
+    });
+    if (low.get(id) !== index.get(id)) return;
+    const component = []; let item;
+    do { item = stack.pop(); active.delete(item); component.push(item); } while (item !== id);
+    component.sort((a, b) => sourceIndex.get(a) - sourceIndex.get(b));
+    components.push(component);
+  };
+  order.forEach((id) => { if (!index.has(id)) visit(id); });
+
+  const componentOf = new Map();
+  components.forEach((component, i) => component.forEach((id) => componentOf.set(id, i)));
+  /* SCC 里挑一条“主阅读链”。用户源码顺序只负责同分时稳定；真正的顺序由
+     内部边决定。三组闭环会得到 业务→通信→对话，唯一回边是 对话→业务。 */
+  components.forEach((component, componentIndex) => {
+    if (component.length < 2 || component.length > 7) return;
+    const internal = edges.filter((edge) => componentOf.get(edge.from) === componentIndex
+      && componentOf.get(edge.to) === componentIndex);
+    const chainScore = (candidate) => {
+      const at = new Map(candidate.map((id, i) => [id, i])); let value = 0;
+      internal.forEach((edge) => {
+        const from = at.get(edge.from); const to = at.get(edge.to); const weight = edge.weight || 1;
+        value += Math.abs(to - from) * weight;
+        if (to <= from) value += 10000 * weight;
+      });
+      return value;
+    };
+    components[componentIndex] = permutations(component).reduce((best, candidate) =>
+      chainScore(candidate) < chainScore(best) ? candidate : best, component);
+  });
+  const dag = new Map(components.map((_, i) => [i, new Set()]));
+  const indeg = components.map(() => 0); const rank = components.map(() => 0);
+  const componentSpan = components.map((component) => component.length >= 3 ? 2 : 1);
+  edges.forEach((edge) => {
+    const a = componentOf.get(edge.from); const b = componentOf.get(edge.to);
+    if (a === b || dag.get(a).has(b)) return;
+    dag.get(a).add(b); indeg[b] += 1;
+  });
+  const componentOrder = (i) => Math.min(...components[i].map((id) => sourceIndex.get(id)));
+  const queue = components.map((_, i) => i).filter((i) => !indeg[i])
+    .sort((a, b) => componentOrder(a) - componentOrder(b));
+  while (queue.length) {
+    const current = queue.shift();
+    dag.get(current).forEach((to) => {
+      rank[to] = Math.max(rank[to], rank[current] + componentSpan[current]); indeg[to] -= 1;
+      if (!indeg[to]) { queue.push(to); queue.sort((a, b) => componentOrder(a) - componentOrder(b)); }
+    });
+  }
+
+  const bands = [];
+  components.forEach((component, i) => {
+    const r = rank[i];
+    if (component.length >= 3) {
+      const split = Math.ceil(component.length / 2);
+      if (!bands[r]) bands[r] = []; bands[r].push(...component.slice(0, split));
+      if (!bands[r + 1]) bands[r + 1] = []; bands[r + 1].push(...component.slice(split));
+    } else {
+      if (!bands[r]) bands[r] = []; bands[r].push(...component);
+    }
+  });
+  for (let i = bands.length - 1; i >= 0; i -= 1) if (!bands[i]?.length) bands.splice(i, 1);
+  const vertical = dir === 'TD' || dir === 'BT';
+  const GAP_CROSS = 150; const GAP_DEPTH = 154; const PAD = 46;
+  const place = () => {
+    const crossSizes = bands.map((band) => band.reduce((sum, id) =>
+      sum + (vertical ? nodes.get(id).w : nodes.get(id).h), 0) + GAP_CROSS * Math.max(0, band.length - 1));
+    const depthSizes = bands.map((band) => Math.max(...band.map((id) => vertical ? nodes.get(id).h : nodes.get(id).w)));
+    const maxCross = Math.max(...crossSizes); const pos = new Map(); let depth = PAD;
+    bands.forEach((band, bandIndex) => {
+      let cross = PAD + (maxCross - crossSizes[bandIndex]) / 2;
+      band.forEach((id) => {
+        const node = nodes.get(id); const depthOffset = (depthSizes[bandIndex] - (vertical ? node.h : node.w)) / 2;
+        pos.set(id, vertical
+          ? { x: cross, y: depth + depthOffset, w: node.w, h: node.h }
+          : { x: depth + depthOffset, y: cross, w: node.w, h: node.h });
+        cross += (vertical ? node.w : node.h) + GAP_CROSS;
+      });
+      depth += depthSizes[bandIndex] + GAP_DEPTH;
+    });
+    const crossExtent = maxCross + PAD * 2; const depthExtent = depth - GAP_DEPTH + PAD;
+    return { pos, width: vertical ? crossExtent : depthExtent, height: vertical ? depthExtent : crossExtent };
+  };
+  const bandOf = new Map();
+  bands.forEach((band, bandIndex) => band.forEach((id) => bandOf.set(id, bandIndex)));
+  const properCross = (a, b, c, d) => {
+    const orient = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+    return orient(a, b, c) * orient(a, b, d) < 0 && orient(c, d, a) * orient(c, d, b) < 0;
+  };
+  const score = () => {
+    const layout = place(); let value = 0; const segments = [];
+    edges.forEach((edge) => {
+      const a = layout.pos.get(edge.from); const b = layout.pos.get(edge.to); if (!a || !b) return;
+      const ac = { x: a.x + a.w / 2, y: a.y + a.h / 2 }; const bc = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+      const weight = edge.weight || 1; const sameBand = bandOf.get(edge.from) === bandOf.get(edge.to);
+      /* SCC 内只有少量边不可避免地逆行。让同 band 的主链沿阅读方向展开，
+         比把所有成员按距离围成一团更重要；这样“业务→通信→对话”只留下
+         “对话→业务”一条清楚的回边。 */
+      const forward = sameBand
+        ? (vertical ? bc.x - ac.x : bc.y - ac.y)
+        : (vertical ? bc.y - ac.y : bc.x - ac.x);
+      value += (Math.abs(bc.x - ac.x) + Math.abs(bc.y - ac.y)) * weight;
+      if (forward < -1) value += (sameBand ? 5200 : 900) * weight;
+      if (Math.abs(bc.x - ac.x) > 1 && Math.abs(bc.y - ac.y) > 1) value += 90 * weight;
+      segments.push({ a: ac, b: bc, edge, weight });
+    });
+    for (let i = 0; i < segments.length; i += 1) for (let j = i + 1; j < segments.length; j += 1) {
+      const a = segments[i]; const b = segments[j];
+      if (a.edge.from === b.edge.from || a.edge.from === b.edge.to
+        || a.edge.to === b.edge.from || a.edge.to === b.edge.to) continue;
+      if (properCross(a.a, a.b, b.a, b.b)) value += 7000 * Math.min(a.weight, b.weight);
+    }
+    return value;
+  };
+  for (let pass = 0; pass < 4; pass += 1) bands.forEach((band, bandIndex) => {
+    if (band.length < 2) return;
+    const componentIds = new Set(band.map((id) => componentOf.get(id)));
+    if (componentIds.size === 1 && components[[...componentIds][0]].length >= 3) return;
+    const original = band;
+    bands[bandIndex] = permutations(band).reduce((best, candidate) => {
+      bands[bandIndex] = candidate; const candidateScore = score();
+      bands[bandIndex] = best; const bestScore = score();
+      return candidateScore < bestScore ? candidate : best;
+    }, original);
+  });
+  const result = place();
+  if (dir === 'BT') result.pos.forEach((p) => { p.y = result.height - p.y - p.h; });
+  if (dir === 'RL') result.pos.forEach((p) => { p.x = result.width - p.x - p.w; });
+  return result;
+}
+
+function segmentHitsBox(a, b, box) {
+  const eps = 0.01;
+  if (Math.abs(a.x - b.x) < eps) {
+    const x = a.x; const y0 = Math.min(a.y, b.y); const y1 = Math.max(a.y, b.y);
+    return x > box.x + eps && x < box.x + box.w - eps && y1 > box.y + eps && y0 < box.y + box.h - eps;
+  }
+  const y = a.y; const x0 = Math.min(a.x, b.x); const x1 = Math.max(a.x, b.x);
+  return y > box.y + eps && y < box.y + box.h - eps && x1 > box.x + eps && x0 < box.x + box.w - eps;
+}
+
+function segmentConflictCost(a, b, routed) {
+  let cost = 0;
+  routed.forEach((points) => {
+    for (let i = 1; i < points.length; i += 1) {
+      const c = points[i - 1]; const d = points[i];
+      const abVertical = Math.abs(a.x - b.x) < 0.01; const cdVertical = Math.abs(c.x - d.x) < 0.01;
+      if (abVertical !== cdVertical) {
+        const vertical = abVertical ? [a, b] : [c, d]; const horizontal = abVertical ? [c, d] : [a, b];
+        const vx = vertical[0].x; const hy = horizontal[0].y;
+        if (vx > Math.min(horizontal[0].x, horizontal[1].x) + 1 && vx < Math.max(horizontal[0].x, horizontal[1].x) - 1
+          && hy > Math.min(vertical[0].y, vertical[1].y) + 1 && hy < Math.max(vertical[0].y, vertical[1].y) - 1) cost += 1100;
+      } else if (abVertical) {
+        if (Math.abs(a.x - c.x) < 1 && Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y))
+          - Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y)) > 2) cost += 360;
+      } else if (Math.abs(a.y - c.y) < 1 && Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x))
+        - Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x)) > 2) cost += 360;
+    }
+  });
+  return cost;
+}
+
+function routeQuality(routes) {
+  const entries = [...routes.entries()].flatMap(([edgeId, route]) =>
+    routeSections(route).map((points) => ({ edgeId, points })));
+  let crossings = 0; let overlaps = 0; let length = 0; let bends = 0;
+  entries.forEach(({ points }) => {
+    bends += Math.max(0, points.length - 2);
+    for (let i = 1; i < points.length; i += 1) length += Math.abs(points[i].x - points[i - 1].x)
+      + Math.abs(points[i].y - points[i - 1].y);
+  });
+  /* 只比较不同逻辑边。一个逻辑边将来即使由 trunk/branch 拆成多个 section，
+     section 彼此的接点和共线段也不是用户看到的“边冲突”。 */
+  for (let i = 0; i < entries.length; i += 1) for (let j = i + 1; j < entries.length; j += 1) {
+    if (entries[i].edgeId === entries[j].edgeId) continue;
+    const left = entries[i].points; const right = entries[j].points;
+    for (let a = 1; a < left.length; a += 1) for (let b = 1; b < right.length; b += 1) {
+      const p = left[a - 1]; const q = left[a]; const r = right[b - 1]; const s = right[b];
+      const pqV = Math.abs(p.x - q.x) < 0.01; const rsV = Math.abs(r.x - s.x) < 0.01;
+      if (pqV !== rsV) {
+        const v = pqV ? [p, q] : [r, s]; const h = pqV ? [r, s] : [p, q];
+        if (v[0].x > Math.min(h[0].x, h[1].x) + 1 && v[0].x < Math.max(h[0].x, h[1].x) - 1
+          && h[0].y > Math.min(v[0].y, v[1].y) + 1 && h[0].y < Math.max(v[0].y, v[1].y) - 1) crossings += 1;
+      } else if (pqV && Math.abs(p.x - r.x) < 1 && Math.min(Math.max(p.y, q.y), Math.max(r.y, s.y))
+        - Math.max(Math.min(p.y, q.y), Math.min(r.y, s.y)) > 2) overlaps += 1;
+      else if (!pqV && Math.abs(p.y - r.y) < 1 && Math.min(Math.max(p.x, q.x), Math.max(r.x, s.x))
+        - Math.max(Math.min(p.x, q.x), Math.min(r.x, s.x)) > 2) overlaps += 1;
+    }
+  }
+  return { crossings, overlaps, bends, length: Math.round(length) };
+}
+
+function simplifyOrthogonal(points) {
+  const clean = [];
+  points.forEach((point) => {
+    const last = clean[clean.length - 1];
+    if (!last || Math.abs(last.x - point.x) > 0.01 || Math.abs(last.y - point.y) > 0.01) clean.push(point);
+  });
+  for (let i = clean.length - 2; i > 0; i -= 1) {
+    const a = clean[i - 1]; const b = clean[i]; const c = clean[i + 1];
+    if ((Math.abs(a.x - b.x) < 0.01 && Math.abs(b.x - c.x) < 0.01)
+      || (Math.abs(a.y - b.y) < 0.01 && Math.abs(b.y - c.y) < 0.01)) clean.splice(i, 1);
+  }
+  return clean;
+}
+
+function portAssignments(g, layout) {
+  const requests = new Map();
+  const add = (id, side, edge, other, source) => {
+    const key = `${id}:${side}`;
+    if (!requests.has(key)) requests.set(key, []);
+    requests.get(key).push({ edge, other, source });
+  };
+  const specs = new Map();
+  g.edges.filter((edge) => edge.from !== edge.to).forEach((edge) => {
+    const a = endpointBox(layout, edge.from); const b = endpointBox(layout, edge.to); if (!a || !b) return;
+    const ac = { x: a.x + a.w / 2, y: a.y + a.h / 2 }; const bc = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+    const horizontal = Math.abs(bc.x - ac.x) >= Math.abs(bc.y - ac.y);
+    const sourceSide = horizontal ? (bc.x >= ac.x ? 'right' : 'left') : (bc.y >= ac.y ? 'bottom' : 'top');
+    const targetSide = horizontal ? (bc.x >= ac.x ? 'left' : 'right') : (bc.y >= ac.y ? 'top' : 'bottom');
+    specs.set(edge.id, { sourceSide, targetSide });
+    add(edge.from, sourceSide, edge, bc, true); add(edge.to, targetSide, edge, ac, false);
+  });
+  const points = new Map();
+  requests.forEach((items, key) => {
+    const split = key.lastIndexOf(':'); const id = key.slice(0, split); const side = key.slice(split + 1);
+    const box = endpointBox(layout, id); if (!box) return;
+    const verticalSide = side === 'left' || side === 'right';
+    items.sort((a, b) => verticalSide ? a.other.y - b.other.y : a.other.x - b.other.x);
+    items.forEach((item, index) => {
+      const ratio = (index + 1) / (items.length + 1);
+      const point = verticalSide
+        ? { x: side === 'left' ? box.x : box.x + box.w, y: box.y + box.h * ratio }
+        : { x: box.x + box.w * ratio, y: side === 'top' ? box.y : box.y + box.h };
+      const keyId = `${item.edge.id}:${item.source ? 'source' : 'target'}`;
+      points.set(keyId, { ...point, side });
+    });
+  });
+  return { specs, points };
+}
+
+function routeOrthogonal(startPort, endPort, obstacles, routed, lanes = []) {
+  const clearance = 16;
+  const move = { left: [-clearance, 0], right: [clearance, 0], top: [0, -clearance], bottom: [0, clearance] };
+  const start = { x: startPort.x + move[startPort.side][0], y: startPort.y + move[startPort.side][1] };
+  const end = { x: endPort.x + move[endPort.side][0], y: endPort.y + move[endPort.side][1] };
+  const xs = new Set([start.x, end.x]); const ys = new Set([start.y, end.y]);
+  lanes.forEach((lane) => { if (lane.axis === 'x') xs.add(lane.value); else ys.add(lane.value); });
+  obstacles.forEach((box) => {
+    xs.add(box.x); xs.add(box.x + box.w); ys.add(box.y); ys.add(box.y + box.h);
+  });
+  /* 已路由边本身只参与冲突成本，不再把每一个弯点注入网格。否则第 N 条边会
+     继承前 N-1 条边的全部坐标，搜索空间和无意义弯折都会指数式膨胀。 */
+  const xList = [...xs].sort((a, b) => a - b); const yList = [...ys].sort((a, b) => a - b);
+  const nodes = new Map();
+  xList.forEach((x, xi) => yList.forEach((y, yi) => {
+    if (!obstacles.some((box) => x > box.x + 0.01 && x < box.x + box.w - 0.01 && y > box.y + 0.01 && y < box.y + box.h - 0.01)) {
+      nodes.set(`${xi}:${yi}`, { x, y, xi, yi });
+    }
+  }));
+  const startId = `${xList.indexOf(start.x)}:${yList.indexOf(start.y)}`; const endId = `${xList.indexOf(end.x)}:${yList.indexOf(end.y)}`;
+  if (!nodes.has(startId) || !nodes.has(endId)) return [startPort, start, { x: end.x, y: start.y }, end, endPort];
+  const keyOf = (id, dir) => `${id}|${dir || '-'}`;
+  const dist = new Map([[keyOf(startId, ''), 0]]); const previous = new Map(); const open = [{ id: startId, dir: '', score: 0 }];
+  let winner = null;
+  while (open.length) {
+    open.sort((a, b) => a.score - b.score); const current = open.shift();
+    const stateKey = keyOf(current.id, current.dir); if (current.score !== dist.get(stateKey)) continue;
+    if (current.id === endId) { winner = current; break; }
+    const node = nodes.get(current.id); const neighbours = [[node.xi - 1, node.yi, 'h'], [node.xi + 1, node.yi, 'h'], [node.xi, node.yi - 1, 'v'], [node.xi, node.yi + 1, 'v']];
+    neighbours.forEach(([xi, yi, dir]) => {
+      const id = `${xi}:${yi}`; const next = nodes.get(id); if (!next) return;
+      if (obstacles.some((box) => segmentHitsBox(node, next, box))) return;
+      const length = Math.abs(next.x - node.x) + Math.abs(next.y - node.y);
+      /* 复杂架构图首先要短而直。交叉已用 casing 明确表达，因此不能为了避开一处
+         交叉，把边推成跨越半张图的矩形回路；每个额外弯折应承担明显成本。 */
+      const bend = current.dir && current.dir !== dir ? 190 : 0;
+      const score = current.score + length + bend + segmentConflictCost(node, next, routed);
+      const nextKey = keyOf(id, dir);
+      if (score >= (dist.get(nextKey) ?? Infinity)) return;
+      dist.set(nextKey, score); previous.set(nextKey, { key: stateKey, point: node });
+      open.push({ id, dir, score });
+    });
+  }
+  if (!winner) return [startPort, start, { x: end.x, y: start.y }, end, endPort];
+  const reversed = [nodes.get(winner.id)]; let cursor = keyOf(winner.id, winner.dir);
+  while (previous.has(cursor)) { const step = previous.get(cursor); reversed.push(step.point); cursor = step.key; }
+  return simplifyOrthogonal([startPort].concat(reversed.reverse(), [endPort]));
+}
+
+function routeCompoundEdges(g, layout) {
+  const routes = new Map(); const routed = []; const hierarchy = graphHierarchy(g);
+  /* 先把局部边和跨组边分开。跨组路由时允许穿越起/终分组内部，但局部边只把
+     自己组内的节点当障碍。旧实现把全图 24 个节点都塞给每一条局部边，导致
+     对话层内部一条短线也可能绕到整张图外侧。 */
+  const routeBatch = (batch, routedPaths, lanes, crossGroup) => {
+    batch.forEach(({ edge }) => {
+      const start = ports.points.get(`${edge.id}:source`); const end = ports.points.get(`${edge.id}:target`); if (!start || !end) return;
+      const allowed = new Set([...ancestors(edge.from), ...ancestors(edge.to)]);
+      const ownerIds = new Set([hierarchy.owner.get(edge.from), hierarchy.owner.get(edge.to)]);
+      const obstacles = [];
+      layout.pos.forEach((box, id) => {
+        if (id === edge.from || id === edge.to) return;
+        if (!crossGroup && !ownerIds.has(hierarchy.owner.get(id))) return;
+        obstacles.push({ x: box.x - 10, y: box.y - 10, w: box.w + 20, h: box.h + 20 });
+      });
+      if (crossGroup) frameById.forEach((frame, id) => {
+        if (allowed.has(id)) obstacles.push({ x: frame.x0 + 8, y: frame.y0 + 5,
+          w: Math.max(0, frame.x1 - frame.x0 - 16), h: 27 });
+        else obstacles.push({ x: frame.x0 - 8, y: frame.y0 - 8,
+          w: frame.x1 - frame.x0 + 16, h: frame.y1 - frame.y0 + 16 });
+      });
+      const points = routeOrthogonal(start, end, obstacles, routedPaths, lanes);
+      routes.set(edge.id, [points]); routedPaths.push(points);
+    });
+  };
+  const rootFrames = (layout.frames || []).filter((frame) => !frame.parentId || frame.parentId === 'root');
+  const laneSpacing = 9; const laneValues = [];
+  const addLanes = (from, to, axis) => {
+    if (to <= from) return;
+    for (let value = from; value <= to; value += laneSpacing) laneValues.push({ axis, value });
+  };
+  const intervals = (axis) => {
+    const start = axis === 'x' ? 'x0' : 'y0'; const end = axis === 'x' ? 'x1' : 'y1';
+    const sorted = rootFrames.slice().sort((a, b) => a[start] - b[start]); const gaps = [];
+    let frontier = sorted[0]?.[end] ?? 0;
+    for (let i = 1; i < sorted.length; i += 1) {
+      if (sorted[i][start] > frontier) gaps.push([frontier + 16, sorted[i][start] - 16]);
+      frontier = Math.max(frontier, sorted[i][end]);
+    }
+    return gaps;
+  };
+  intervals('x').forEach(([from, to]) => addLanes(from, to, 'x'));
+  intervals('y').forEach(([from, to]) => addLanes(from, to, 'y'));
+  addLanes(14, Math.max(14, Math.min(...rootFrames.map((frame) => frame.x0)) - 16), 'x');
+  addLanes(Math.max(...rootFrames.map((frame) => frame.x1)) + 16, layout.width - 14, 'x');
+  addLanes(14, Math.max(14, Math.min(...rootFrames.map((frame) => frame.y0)) - 16), 'y');
+  addLanes(Math.max(...rootFrames.map((frame) => frame.y1)) + 16, layout.height - 14, 'y');
+  const ports = portAssignments(g, layout);
+  const frameById = new Map((layout.frames || []).map((frame) => [frame.id, frame]));
+  const ancestors = (id) => {
+    const allowed = new Set(); let owner = hierarchy.groupById.has(id) ? id : hierarchy.owner.get(id);
+    while (owner) { allowed.add(owner); owner = hierarchy.groupById.get(owner)?.parentId; }
+    return allowed;
+  };
+  const centerOf = (id) => {
+    const box = endpointBox(layout, id);
+    return box ? { x: box.x + box.w / 2, y: box.y + box.h / 2 } : { x: 0, y: 0 };
+  };
+  const orderedEdges = g.edges.filter((edge) => edge.from !== edge.to).map((edge, index) => {
+    const a = centerOf(edge.from); const b = centerOf(edge.to);
+    const sameOwner = hierarchy.owner.get(edge.from) === hierarchy.owner.get(edge.to);
+    return { edge, index, sameOwner, span: Math.abs(a.x - b.x) + Math.abs(a.y - b.y) };
+  }).sort((a, b) => a.span - b.span || a.index - b.index);
+  const local = orderedEdges.filter((item) => item.sameOwner);
+  const global = orderedEdges.filter((item) => !item.sameOwner);
+  const localRouted = [];
+  routeBatch(local, localRouted, [], false);
+  routed.push(...localRouted);
+  routeBatch(global, routed, laneValues, true);
+  return routes;
+}
+
+function groupedFallbackLayout(g) {
+  const hierarchy = graphHierarchy(g);
+  const rootId = 'root';
+  const isDescendant = (id, containerId) => {
+    if (containerId === rootId) return true;
+    let current = hierarchy.groupById.has(id) ? id : hierarchy.owner.get(id);
+    while (current) {
+      if (current === containerId) return true;
+      current = hierarchy.groupById.get(current)?.parentId;
+    }
+    return false;
+  };
+  const childAt = (id, containerId) => {
+    if (containerId === rootId) {
+      let current = hierarchy.groupById.has(id) ? id : hierarchy.owner.get(id);
+      if (!current) return hierarchy.groupById.has(id) ? null : id;
+      while (hierarchy.groupById.get(current)?.parentId) current = hierarchy.groupById.get(current).parentId;
+      return current;
+    }
+    if (hierarchy.groupById.has(id)) {
+      let current = id;
+      while (hierarchy.groupById.get(current)?.parentId !== containerId) {
+        current = hierarchy.groupById.get(current)?.parentId;
+        if (!current) return null;
+      }
+      return current;
+    }
+    let owner = hierarchy.owner.get(id);
+    if (owner === containerId) return id;
+    while (owner && hierarchy.groupById.get(owner)?.parentId !== containerId) owner = hierarchy.groupById.get(owner)?.parentId;
+    return owner || null;
+  };
+  const memo = new Map();
+  const layoutContainer = (containerId) => {
+    if (memo.has(containerId)) return memo.get(containerId);
+    const group = containerId === rootId ? null : hierarchy.groupById.get(containerId);
+    const childIds = containerId === rootId
+      ? g.groups.filter((item) => !item.parentId).map((item) => item.id)
+        .concat(g.order.filter((id) => !hierarchy.owner.get(id)))
+      : (group?.members || group?.nodes.concat(group?.groups || []) || []);
+    const childLayouts = new Map();
+    const nodes = new Map();
+    childIds.forEach((id) => {
+      const childGroup = hierarchy.groupById.get(id);
+      if (childGroup) {
+        const nested = layoutContainer(id); childLayouts.set(id, nested);
+        nodes.set(id, { id, w: nested.width, h: nested.height });
+      } else {
+        const node = g.nodes.get(id); if (node) nodes.set(id, node);
+      }
+    });
+    const edgesByPair = new Map();
+    g.edges.forEach((edge) => {
+      if (!isDescendant(edge.from, containerId) || !isDescendant(edge.to, containerId)) return;
+      const from = childAt(edge.from, containerId); const to = childAt(edge.to, containerId);
+      if (!nodes.has(from) || !nodes.has(to) || from === to) return;
+      const key = JSON.stringify([from, to]);
+      const current = edgesByPair.get(key);
+      if (current) current.weight += 1;
+      else edgesByPair.set(key, { from, to, weight: 1 });
+    });
+    const edges = [...edgesByPair.values()];
+    const dir = group?.dir || (containerId === rootId && childIds.filter((id) => hierarchy.groupById.has(id)).length >= 4
+      && g.order.length >= 18 && g.dir === 'TD' ? 'LR' : g.dir);
+    const horizontal = dir === 'LR' || dir === 'RL';
+    const rootCompound = containerId === rootId && childIds.filter((id) => hierarchy.groupById.has(id)).length >= 4;
+    const placed = rootCompound
+      ? layoutCompoundRoot(nodes, childIds.filter((id) => nodes.has(id)), edges, g.dir)
+      : layered(nodes, childIds.filter((id) => nodes.has(id)), edges, {
+        dir, gapX: horizontal ? 78 : 56, gapY: horizontal ? 56 : 78, maxCross: 100000,
+      });
+    const titleTop = group ? 38 : 0; const side = group ? 18 : 0; const bottom = group ? 18 : 0;
+    const result = { containerId, childIds, childLayouts, placed,
+      width: placed.width + side * 2, height: placed.height + titleTop + bottom,
+      titleTop, side };
+    memo.set(containerId, result); return result;
+  };
+  const root = layoutContainer(rootId);
+  const pos = new Map(); const frames = [];
+  const emit = (layout, ox, oy, parentId) => {
+    layout.childIds.forEach((id) => {
+      const p = layout.placed.pos.get(id); if (!p) return;
+      const x = ox + layout.side + p.x; const y = oy + layout.titleTop + p.y;
+      const nested = layout.childLayouts.get(id);
+      if (nested) {
+        frames.push({ id, parentId, x0: x, y0: y, x1: x + nested.width, y1: y + nested.height });
+        emit(nested, x, y, id);
+      } else pos.set(id, { x, y, w: p.w, h: p.h });
+    });
+  };
+  emit(root, 0, 0, rootId);
+  const result = { pos, frames, width: root.width, height: root.height, engine: 'grouped-fallback' };
+  result.routes = routeCompoundEdges(g, result);
+  result.quality = routeQuality(result.routes);
+  return result;
+}
+
 function fallbackLayout(g) {
+  if (g.groups.length) return groupedFallbackLayout(g);
   const hierarchy = graphHierarchy(g);
   const leavesOf = (id) => {
     const group = hierarchy.groupById.get(id);
@@ -814,21 +1310,299 @@ function fallbackLayout(g) {
     height: Math.max(L.height + shiftY, ...frames.map((f) => f.y1 + 14)) };
 }
 
-function renderWithElk(g, kind) {
-  if (typeof window === 'undefined' || typeof window.ELK !== 'function') return Promise.resolve(renderLaidOut(g, fallbackLayout(g), kind));
-  const elk = new window.ELK();
-  return elk.layout(buildElkGraph(g, kind), { layoutOptions: { 'elk.algorithm': 'layered' } }).then((result) => {
-    const pos = new Map(); const frames = []; const routes = new Map(); const labels = new Map();
-    collectElk(result, 0, 0, pos, frames, routes, labels);
-    return renderLaidOut(g, { pos, frames, routes, labels,
-      width: result.width || 1, height: result.height || 1 }, kind);
-  }).catch(() => renderLaidOut(g, fallbackLayout(g), kind));
+function validateLayout(g, layout) {
+  const finiteBox = (box) => box && [box.x, box.y, box.w, box.h].every(Number.isFinite)
+    && box.w > 0 && box.h > 0;
+  for (const id of g.order) if (!finiteBox(layout.pos.get(id))) return `missing-node:${id}`;
+  const frames = layout.frames || [];
+  const ownerFrames = new Map(frames.map((frame) => [frame.id, frame]));
+  for (const [id, ownerId] of g.nodeOwners || []) {
+    if (!ownerId) continue;
+    const node = layout.pos.get(id); const frame = ownerFrames.get(ownerId);
+    if (!node || !frame || node.x < frame.x0 - 1 || node.y < frame.y0 - 1
+      || node.x + node.w > frame.x1 + 1 || node.y + node.h > frame.y1 + 1) return `node-outside-group:${id}`;
+  }
+  const siblings = new Map();
+  frames.forEach((frame) => {
+    const key = frame.parentId || 'root';
+    if (!siblings.has(key)) siblings.set(key, []);
+    siblings.get(key).push(frame);
+  });
+  for (const list of siblings.values()) {
+    for (let i = 0; i < list.length; i += 1) for (let j = i + 1; j < list.length; j += 1) {
+      const a = list[i]; const b = list[j];
+      if (a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0) return `overlapping-groups:${a.id},${b.id}`;
+    }
+  }
+  return '';
 }
 
-export function render(src, kind = 'flow') {
+function overviewModel(g) {
+  const hierarchy = graphHierarchy(g);
+  const rootGroups = g.groups.filter((group) => !group.parentId);
+  const rootOf = (id) => {
+    let owner = hierarchy.groupById.has(id) ? id : hierarchy.owner.get(id);
+    if (!owner) return null;
+    while (hierarchy.groupById.get(owner)?.parentId) owner = hierarchy.groupById.get(owner).parentId;
+    return owner;
+  };
+  const bundlesByPair = new Map();
+  const localEdges = [];
+  g.edges.forEach((edge) => {
+    const fromGroup = rootOf(edge.from); const toGroup = rootOf(edge.to);
+    if (!fromGroup || !toGroup || fromGroup === toGroup) { localEdges.push(edge); return; }
+    const key = `${fromGroup}\u0000${toGroup}`;
+    if (!bundlesByPair.has(key)) bundlesByPair.set(key, {
+      id: `bundle-${bundlesByPair.size}`, from: fromGroup, to: toGroup, members: [],
+    });
+    bundlesByPair.get(key).members.push(edge);
+  });
+  return { hierarchy, rootGroups, rootOf, localEdges, bundles: [...bundlesByPair.values()] };
+}
+
+function shouldRenderOverview(g, kind) {
+  if (kind !== 'flow') return false;
+  const roots = g.groups.filter((group) => !group.parentId);
+  return roots.length >= 4 && g.order.length >= 18 && overviewModel(g).bundles.length >= 5;
+}
+
+function orderOverviewCore(groups, bundles, sourceIndex) {
+  const ids = groups.map((group) => group.id);
+  const outgoing = new Map(ids.map((id) => [id, []]));
+  bundles.forEach((bundle) => outgoing.get(bundle.from)?.push(bundle.to));
+  let seq = 0; const index = new Map(); const low = new Map(); const stack = []; const active = new Set(); const components = [];
+  const visit = (id) => {
+    index.set(id, seq); low.set(id, seq); seq += 1; stack.push(id); active.add(id);
+    (outgoing.get(id) || []).forEach((to) => {
+      if (!index.has(to)) { visit(to); low.set(id, Math.min(low.get(id), low.get(to))); }
+      else if (active.has(to)) low.set(id, Math.min(low.get(id), index.get(to)));
+    });
+    if (low.get(id) !== index.get(id)) return;
+    const component = []; let item;
+    do { item = stack.pop(); active.delete(item); component.push(item); } while (item !== id);
+    component.sort((a, b) => sourceIndex.get(a) - sourceIndex.get(b)); components.push(component);
+  };
+  ids.forEach((id) => { if (!index.has(id)) visit(id); });
+  const weight = new Map(bundles.map((bundle) => [`${bundle.from}\u0000${bundle.to}`, bundle.members.length]));
+  const scoreOrder = (candidate) => {
+    const at = new Map(candidate.map((id, i) => [id, i])); let score = 0;
+    bundles.forEach((bundle) => {
+      if (!at.has(bundle.from) || !at.has(bundle.to)) return;
+      const distance = at.get(bundle.to) - at.get(bundle.from); const w = bundle.members.length;
+      score += Math.abs(distance) * w + (distance <= 0 ? 10000 * w : 0);
+    });
+    return score;
+  };
+  components.forEach((component, i) => {
+    if (component.length < 2 || component.length > 7) return;
+    components[i] = permutations(component).reduce((best, candidate) =>
+      scoreOrder(candidate) < scoreOrder(best) ? candidate : best, component);
+  });
+  const componentWeight = (component) => bundles.reduce((sum, bundle) =>
+    sum + (component.includes(bundle.from) && component.includes(bundle.to) ? bundle.members.length : 0), 0);
+  const core = components.slice().sort((a, b) => b.length - a.length
+    || componentWeight(b) - componentWeight(a)
+    || Math.min(...a.map((id) => sourceIndex.get(id))) - Math.min(...b.map((id) => sourceIndex.get(id))))[0] || ids.slice(0, 1);
+  return { core, components, weight };
+}
+
+function overviewGroupPlan(g, model, group) {
+  const ids = (group.nodes || []).filter((id) => g.nodes.has(id));
+  const idSet = new Set(ids);
+  const edges = model.localEdges.filter((edge) => idSet.has(edge.from) && idSet.has(edge.to));
+  if (!edges.length) {
+    const gap = 28; const innerWidth = ids.reduce((sum, id) => sum + g.nodes.get(id).w, 0)
+      + gap * Math.max(0, ids.length - 1);
+    return { ids, edges, noFlow: true, width: Math.max(230, innerWidth + 44), height: 126 };
+  }
+  const placed = layered(new Map(ids.map((id) => [id, g.nodes.get(id)])), ids, edges, {
+    dir: group.dir || 'TD', gapX: 34, gapY: 42, maxCross: 620,
+  });
+  return { ids, edges, noFlow: false, placed,
+    width: Math.max(280, placed.width + 44), height: Math.max(176, placed.height + 58) };
+}
+
+function overviewBundlePath(bundle, frames, roles, indexes, laneIndex) {
+  const a = frames.get(bundle.from); const b = frames.get(bundle.to);
+  const center = (frame) => ({ x: (frame.x0 + frame.x1) / 2, y: (frame.y0 + frame.y1) / 2 });
+  const ac = center(a); const bc = center(b);
+  const sourceRole = roles.get(bundle.from); const targetRole = roles.get(bundle.to);
+  if (sourceRole === 'core' && targetRole === 'core') {
+    if (indexes.get(bundle.to) > indexes.get(bundle.from)) {
+      const start = { x: a.x1, y: ac.y }; const end = { x: b.x0, y: bc.y };
+      const mid = (start.x + end.x) / 2;
+      return simplifyOrthogonal([start, { x: mid, y: start.y }, { x: mid, y: end.y }, end]);
+    }
+    const start = { x: a.x0, y: a.y1 - 54 }; const end = { x: b.x1, y: b.y1 - 54 };
+    const lane = Math.max(a.y1, b.y1) + 44 + laneIndex * 18;
+    return simplifyOrthogonal([start, { x: start.x - 22, y: start.y }, { x: start.x - 22, y: lane },
+      { x: end.x + 22, y: lane }, { x: end.x + 22, y: end.y }, end]);
+  }
+  if (sourceRole === 'top') {
+    const sx = Math.max(a.x0 + 42, Math.min(a.x1 - 42, bc.x));
+    const tx = Math.max(b.x0 + 42, Math.min(b.x1 - 42, sx));
+    const start = { x: sx, y: a.y1 }; const end = { x: tx, y: b.y0 }; const mid = (start.y + end.y) / 2;
+    return simplifyOrthogonal([start, { x: start.x, y: mid }, { x: end.x, y: mid }, end]);
+  }
+  if (targetRole === 'bottom') {
+    const sx = Math.max(a.x0 + 48, Math.min(a.x1 - 48, bc.x));
+    const tx = Math.max(b.x0 + 48, Math.min(b.x1 - 48, sx));
+    const start = { x: sx, y: a.y1 }; const end = { x: tx, y: b.y0 };
+    const mid = start.y + (end.y - start.y) * (0.46 + laneIndex * 0.04);
+    return simplifyOrthogonal([start, { x: start.x, y: mid }, { x: end.x, y: mid }, end]);
+  }
+  const horizontal = Math.abs(bc.x - ac.x) >= Math.abs(bc.y - ac.y);
+  if (horizontal) {
+    const start = { x: bc.x >= ac.x ? a.x1 : a.x0, y: ac.y };
+    const end = { x: bc.x >= ac.x ? b.x0 : b.x1, y: bc.y }; const mid = (start.x + end.x) / 2;
+    return simplifyOrthogonal([start, { x: mid, y: start.y }, { x: mid, y: end.y }, end]);
+  }
+  const start = { x: ac.x, y: bc.y >= ac.y ? a.y1 : a.y0 };
+  const end = { x: bc.x, y: bc.y >= ac.y ? b.y0 : b.y1 }; const mid = (start.y + end.y) / 2;
+  return simplifyOrthogonal([start, { x: start.x, y: mid }, { x: end.x, y: mid }, end]);
+}
+
+function longestSegmentMidpoint(points) {
+  let best = { length: -1, x: 0, y: 0, horizontal: true };
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1]; const b = points[i]; const length = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    if (length > best.length) best = { length, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2,
+      horizontal: Math.abs(a.x - b.x) >= Math.abs(a.y - b.y) };
+  }
+  return best;
+}
+
+function renderOverview(g, kind) {
+  const model = overviewModel(g); const groupById = new Map(model.rootGroups.map((group) => [group.id, group]));
+  const sourceIndex = new Map(model.rootGroups.map((group, i) => [group.id, i]));
+  const { core } = orderOverviewCore(model.rootGroups, model.bundles, sourceIndex);
+  const coreSet = new Set(core); const incoming = new Map(model.rootGroups.map((group) => [group.id, 0]));
+  const outgoing = new Map(model.rootGroups.map((group) => [group.id, 0]));
+  model.bundles.forEach((bundle) => { outgoing.set(bundle.from, outgoing.get(bundle.from) + bundle.members.length); incoming.set(bundle.to, incoming.get(bundle.to) + bundle.members.length); });
+  const top = model.rootGroups.map((group) => group.id).filter((id) => !coreSet.has(id)
+    && model.bundles.some((bundle) => bundle.from === id && coreSet.has(bundle.to))
+    && !model.bundles.some((bundle) => bundle.to === id && coreSet.has(bundle.from)));
+  const bottom = model.rootGroups.map((group) => group.id).filter((id) => !coreSet.has(id) && !top.includes(id));
+  const coreAt = new Map(core.map((id, i) => [id, i]));
+  const barycenter = (id, source) => {
+    const links = model.bundles.filter((bundle) => source ? bundle.from === id && coreSet.has(bundle.to)
+      : bundle.to === id && coreSet.has(bundle.from));
+    const total = links.reduce((sum, bundle) => sum + bundle.members.length, 0) || 1;
+    return links.reduce((sum, bundle) => sum + coreAt.get(source ? bundle.to : bundle.from) * bundle.members.length, 0) / total;
+  };
+  top.sort((a, b) => barycenter(a, true) - barycenter(b, true) || sourceIndex.get(a) - sourceIndex.get(b));
+  bottom.sort((a, b) => barycenter(a, false) - barycenter(b, false) || sourceIndex.get(a) - sourceIndex.get(b));
+  const plans = new Map(model.rootGroups.map((group) => [group.id, overviewGroupPlan(g, model, group)]));
+  const GAP = 92; const PAD = 34;
+  const rowWidth = (ids) => ids.reduce((sum, id) => sum + plans.get(id).width, 0) + GAP * Math.max(0, ids.length - 1);
+  const coreWidth = rowWidth(core); const bottomWidth = rowWidth(bottom); const topWidth = rowWidth(top);
+  const width = Math.max(1180, coreWidth, bottomWidth, topWidth) + PAD * 2;
+  const frames = new Map(); const roles = new Map();
+  const placeRow = (ids, y, role, stretch = false) => {
+    const natural = rowWidth(ids); let x = PAD + (width - PAD * 2 - natural) / 2;
+    ids.forEach((id) => {
+      const plan = plans.get(id); let w = plan.width;
+      if (stretch && ids.length === 1) { w = Math.max(w, coreWidth); x = PAD + (width - PAD * 2 - w) / 2; }
+      frames.set(id, { id, parentId: 'root', x0: x, y0: y, x1: x + w, y1: y + plan.height }); roles.set(id, role);
+      x += w + GAP;
+    });
+  };
+  const topHeight = Math.max(0, ...top.map((id) => plans.get(id).height));
+  placeRow(top, PAD, 'top', true);
+  const coreY = PAD + topHeight + (top.length ? 118 : 0); placeRow(core, coreY, 'core');
+  const coreHeight = Math.max(0, ...core.map((id) => plans.get(id).height));
+  const bottomY = coreY + coreHeight + (bottom.length ? 178 : 0); placeRow(bottom, bottomY, 'bottom');
+  const bottomHeight = Math.max(0, ...bottom.map((id) => plans.get(id).height));
+  const height = bottomY + bottomHeight + PAD;
+  const pos = new Map();
+  model.rootGroups.forEach((group) => {
+    const frame = frames.get(group.id); const plan = plans.get(group.id); if (!frame || !plan) return;
+    if (plan.noFlow) {
+      const inner = frame.x1 - frame.x0 - 40;
+      const used = plan.ids.reduce((sum, id) => sum + g.nodes.get(id).w, 0);
+      const gap = plan.ids.length > 1 ? Math.max(18, (inner - used) / (plan.ids.length - 1)) : 0;
+      let x = frame.x0 + 20 + Math.max(0, (inner - used - gap * Math.max(0, plan.ids.length - 1)) / 2);
+      plan.ids.forEach((id) => { const node = g.nodes.get(id); pos.set(id, { x, y: frame.y0 + 62, w: node.w, h: node.h }); x += node.w + gap; });
+    } else {
+      const offsetX = frame.x0 + (frame.x1 - frame.x0 - plan.placed.width) / 2;
+      const offsetY = frame.y0 + 42;
+      plan.ids.forEach((id) => { const p = plan.placed.pos.get(id); if (p) pos.set(id, { x: offsetX + p.x, y: offsetY + p.y, w: p.w, h: p.h }); });
+    }
+  });
+  const localGraph = { ...g, edges: model.localEdges };
+  const localLayout = { pos, frames: [...frames.values()], width, height };
+  const localRoutes = routeCompoundEdges(localGraph, localLayout);
+  const id = uid('fco'); const root = svgOpen(width, height, 'dg-flow dg-flow-overview').replace(' role="img"',
+    ` data-flow-view="overview" data-layout-engine="overview-bundled" data-bundle-count="${model.bundles.length}" data-detail-edge-count="${g.edges.length}" data-cross-group-edge-count="${model.bundles.reduce((sum, bundle) => sum + bundle.members.length, 0)}" role="img" aria-label="系统架构概览"`);
+  const out = [root, inlineStyle(), arrowDefs(id)];
+  model.rootGroups.forEach((group) => {
+    const frame = frames.get(group.id); const authored = g.styles?.get(group.id); const authoredClass = authoredClasses(g, group.id);
+    out.push(rect(frame.x0, frame.y0, frame.x1 - frame.x0, frame.y1 - frame.y0, 14,
+      `dg-group dg-overview-group${authoredClass ? ` ${authoredClass}` : ''}`, `data-group-id="${esc(group.id)}" data-group-title="${esc(group.title)}" ${styleExtra(authored)}`));
+    out.push(`<text x="${round(frame.x0 + 18)}" y="${round(frame.y0 + 25)}" class="dg-group-title dg-overview-title" text-anchor="start">${esc(group.title)}</text>`);
+    out.push(`<text x="${round(frame.x1 - 18)}" y="${round(frame.y0 + 25)}" class="dg-group-count" text-anchor="end">${plans.get(group.id).ids.length} 个模块</text>`);
+  });
+  model.localEdges.forEach((edge) => {
+    const sections = routeSections(localRoutes.get(edge.id));
+    sections.forEach((points, index) => out.push(path(orthogonalPath(points), 'dg-edge dg-local-edge',
+      `${index === sections.length - 1 && edge.arrow ? ` marker-end="url(#${id}-arrow)"` : ''} data-edge-id="${esc(edge.id)}" data-edge-from="${esc(edge.from)}" data-edge-to="${esc(edge.to)}"`)));
+  });
+  const coreIndexes = new Map(core.map((groupId, i) => [groupId, i])); let returnLane = 0; let lowerLane = 0;
+  model.bundles.forEach((bundle) => {
+    const reverse = roles.get(bundle.from) === 'core' && roles.get(bundle.to) === 'core'
+      && coreIndexes.get(bundle.to) < coreIndexes.get(bundle.from);
+    const lane = reverse ? returnLane++ : (roles.get(bundle.to) === 'bottom' ? lowerLane++ : 0);
+    const points = overviewBundlePath(bundle, frames, roles, coreIndexes, lane);
+    const groupFrom = groupById.get(bundle.from); const groupTo = groupById.get(bundle.to);
+    const relations = bundle.members.map((edge) => `${g.nodes.get(edge.from)?.label || edge.from} → ${g.nodes.get(edge.to)?.label || edge.to}`);
+    const memberIds = bundle.members.map((edge) => edge.id).join(',');
+    const nodeIds = [...new Set(bundle.members.flatMap((edge) => [edge.from, edge.to]))].join(',');
+    const label = `${reverse ? '回传 · ' : ''}${bundle.members.length} 项`;
+    const data = `data-bundle-id="${esc(bundle.id)}" data-bundle-from="${esc(bundle.from)}" data-bundle-to="${esc(bundle.to)}" data-bundle-members="${esc(memberIds)}" data-bundle-nodes="${esc(nodeIds)}" data-bundle-relations="${esc(relations.join('||'))}" tabindex="0" role="button" aria-label="${esc(`${groupFrom?.title || bundle.from}到${groupTo?.title || bundle.to}，${bundle.members.length}项关系`)}"`;
+    out.push(path(orthogonalPath(points, 10), 'dg-bundle-hit', data));
+    out.push(path(orthogonalPath(points, 10), `dg-bundle${reverse ? ' is-return' : ''}`, `marker-end="url(#${id}-arrow)" ${data}`));
+    const mid = longestSegmentMidpoint(points); const labelW = Math.max(54, textWidth(label) + 24); const lx = mid.x - labelW / 2; const ly = mid.y - 12;
+    out.push(`<g class="dg-bundle-label${reverse ? ' is-return' : ''}" ${data}><rect x="${round(lx)}" y="${round(ly)}" width="${round(labelW)}" height="24" rx="12"/><text x="${round(mid.x)}" y="${round(mid.y + 4)}" text-anchor="middle">${esc(label)}</text></g>`);
+  });
+  g.order.forEach((nodeId) => {
+    const p = pos.get(nodeId); const node = g.nodes.get(nodeId); if (!p || !node) return;
+    const authored = g.styles?.get(nodeId); const authoredClass = authoredClasses(g, nodeId);
+    out.push(drawShape(node.shape, p, `dg-shape dg-overview-node${authoredClass ? ` ${authoredClass}` : ''}`, authored,
+      `data-node-id="${esc(nodeId)}" tabindex="0"`));
+    if (node.lines?.length && node.shape !== 'terminal') out.push(textBlock(p.x + p.w / 2, p.y + p.h / 2, node.lines, 'dg-text', 18, styleExtra(authored, 'text')));
+  });
+  out.push('</svg>'); return out.join('');
+}
+
+function renderWithElk(g, kind) {
+  const fallback = (reason) => {
+    if (reason && typeof console !== 'undefined' && console.warn) {
+      console.warn('[docsmith-diagrams] ELK layout rejected', { reason, nodes: g.order.length,
+        groups: g.groups.length, edges: g.edges.length });
+    }
+    const svg = renderLaidOut(g, fallbackLayout(g), kind);
+    return reason ? svg.replace(' role="img"', ` data-layout-warning="${esc(reason)}" role="img"`) : svg;
+  };
+  if (typeof window === 'undefined' || typeof window.ELK !== 'function') return Promise.resolve(fallback('elk-unavailable'));
+  const elk = new window.ELK();
+  return elk.layout(buildElkGraph(g, kind)).then((result) => {
+    const pos = new Map(); const frames = []; const routes = new Map(); const labels = new Map();
+    collectElk(result, 0, 0, pos, frames, routes, labels);
+    const layout = { pos, frames, routes, labels, width: result.width || 1,
+      height: result.height || 1, engine: 'elk' };
+    const invalid = validateLayout(g, layout);
+    return invalid ? fallback(invalid) : renderLaidOut(g, layout, kind);
+  }).catch((error) => fallback(error?.message || 'elk-error'));
+}
+
+export function render(src, kind = 'flow', options = {}) {
   const g = parse(src, kind);
+  if (shouldRenderOverview(g, kind) && options.view !== 'detail') return renderOverview(g, kind);
   if (kind === 'flow' && !g.groups.length && isTree(g.order, g.edges)) {
     return renderLaidOut(g, fallbackLayout(g), kind);
   }
-  return renderWithElk(g, kind);
+  const rendered = renderWithElk(g, kind);
+  if (!shouldRenderOverview(g, kind) || options.view !== 'detail') return rendered;
+  return Promise.resolve(rendered).then((svg) => svg.replace(' role="img"',
+    ` data-flow-view="detail" data-detail-edge-count="${g.edges.length}" role="img"`));
 }

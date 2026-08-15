@@ -83,18 +83,19 @@ export function supportsFence(language) {
 }
 
 /** 按围栏语言画图，避免把 Infographic 冒充成 Mermaid。 */
-export function renderFencedDiagram(language, src) {
+export function renderFencedDiagram(language, src, options = {}) {
   const lang = String(language ?? '').trim().toLowerCase();
   const renderer = detect(src);
   if (!renderer || !renderer.fences.includes(lang)) {
     throw new UnsupportedDiagram(lang || '未知');
   }
-  const normalized = renderer.normalize(String(src ?? ''), { id: renderer.id, name: renderer.name });
-  return renderer.render(normalized, { id: renderer.id, name: renderer.name, fence: lang });
+  const context = { id: renderer.id, name: renderer.name, fence: lang, ...options };
+  const normalized = renderer.normalize(String(src ?? ''), context);
+  return renderer.render(normalized, context);
 }
 
 [
-  { id: 'flowchart', name: '流程图', match: /^(graph|flowchart)\b/i, render: (src) => renderFlow(src, 'flow') },
+  { id: 'flowchart', name: '流程图', match: /^(graph|flowchart)\b/i, render: (src, context) => renderFlow(src, 'flow', context) },
   { id: 'state', name: '状态图', match: /^stateDiagram(-v2)?\b/i, render: (src) => renderFlow(src, 'state') },
   { id: 'sequence', name: '时序图', match: /^sequenceDiagram\b/i, render: renderSequence },
   { id: 'gantt', name: '甘特图', match: /^gantt\b/i, render: renderGantt },
@@ -109,14 +110,15 @@ export function renderFencedDiagram(language, src) {
  * @returns {string|Promise<string>} SVG；复杂流程图由 ELK 异步布局
  * @throws {UnsupportedDiagram} 图种不认识
  */
-export function renderDiagram(src) {
+export function renderDiagram(src, options = {}) {
   const renderer = detect(src);
   if (!renderer) {
     const kind = (firstMeaningfulLine(src).split(/\s/)[0] || '未知').slice(0, 24);
     throw new UnsupportedDiagram(kind);
   }
-  const normalized = renderer.normalize(String(src ?? ''), { id: renderer.id, name: renderer.name });
-  return renderer.render(normalized, { id: renderer.id, name: renderer.name });
+  const context = { id: renderer.id, name: renderer.name, ...options };
+  const normalized = renderer.normalize(String(src ?? ''), context);
+  return renderer.render(normalized, context);
 }
 
 function asPromise(value) {

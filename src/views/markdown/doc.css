@@ -152,8 +152,10 @@
 .doc .mm-copy{font-family:var(--doc-head); font-size:12px; font-weight:500; cursor:pointer; color:var(--doc-muted); background:transparent; border:1px solid var(--doc-code-border); border-radius:6px; padding:3px 9px; transition:color .15s,border-color .15s;}
 .doc .mm-copy:hover{color:var(--doc-fg); border-color:var(--doc-accent);}
 .doc .mm-copy.ok{color:var(--c-tip); border-color:var(--c-tip);}
-.doc .copy-btn,.doc .mm-toggle{font-family:var(--doc-head); font-size:12px; font-weight:500; cursor:pointer; color:var(--doc-muted); background:transparent; border:1px solid var(--doc-code-border); border-radius:6px; padding:3px 9px; transition:color .15s,border-color .15s;}
-.doc .copy-btn:hover,.doc .mm-toggle:hover{color:var(--doc-fg); border-color:var(--doc-accent);}
+.doc .copy-btn,.doc .mm-toggle,.doc .mm-flow-mode{font-family:var(--doc-head); font-size:12px; font-weight:500; cursor:pointer; color:var(--doc-muted); background:transparent; border:1px solid var(--doc-code-border); border-radius:6px; padding:3px 9px; transition:color .15s,border-color .15s;}
+.doc .copy-btn:hover,.doc .mm-toggle:hover,.doc .mm-flow-mode:hover{color:var(--doc-fg); border-color:var(--doc-accent);}
+.doc .mm-flow-mode{color:var(--doc-link); border-color:color-mix(in srgb,var(--doc-link) 38%,var(--doc-code-border));}
+.doc .mm-flow-mode:disabled{cursor:wait; opacity:.55;}
 .doc .copy-btn.ok{color:var(--c-tip); border-color:var(--c-tip);}
 .doc pre{margin:0; padding:14px 16px; overflow-x:auto;}
 .doc pre code{font-family:var(--doc-mono); font-size:.78em; line-height:1.6; background:none; padding:0; color:inherit;}
@@ -171,6 +173,13 @@
 .doc .mm-stage svg{display:block; max-width:none; margin:0;}
 .doc .mm-tools{position:absolute; top:10px; right:10px; display:flex; gap:2px; padding:4px; background:color-mix(in srgb, var(--doc-code-head) 80%, transparent); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); border:1px solid var(--doc-code-border); border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.10), 0 1px 2px rgba(0,0,0,.06); z-index:3; opacity:0; transform:translateY(-5px) scale(.97); transform-origin:top right; pointer-events:none; transition:opacity .18s ease, transform .18s ease;}
 .doc .diagram-render:hover .mm-tools,.doc .mm-tools:focus-within{opacity:1; transform:none; pointer-events:auto;}
+.doc .mm-relations{position:absolute; right:12px; bottom:12px; z-index:4; width:min(390px,calc(100% - 24px)); max-height:230px; overflow:auto; padding:12px 14px; border:1px solid var(--doc-code-border); border-radius:10px; background:color-mix(in srgb,var(--doc-bg) 96%,transparent); box-shadow:0 10px 30px rgba(0,0,0,.14); font-family:var(--doc-head); font-size:12px; line-height:1.5;}
+.doc .mm-relations[hidden]{display:none;}
+.doc .mm-relations-head{display:flex; align-items:center; gap:8px; margin-bottom:7px; color:var(--doc-fg);}
+.doc .mm-relations-head span{margin-left:auto; color:var(--doc-muted);}
+.doc .mm-relations-head button{border:0; background:transparent; color:var(--doc-muted); font-size:18px; line-height:1; cursor:pointer;}
+.doc .mm-relations ul{margin:0; padding-left:1.3em;}
+.doc .mm-relations li{margin:.24em 0; color:var(--doc-fg);}
 .doc .mm-tools button{display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border:none; background:transparent; color:var(--doc-muted); border-radius:7px; cursor:pointer; transition:background .14s, color .14s, transform .05s;}
 .doc .mm-tools button:hover{background:color-mix(in srgb, var(--doc-accent) 14%, transparent); color:var(--doc-accent);}
 .doc .mm-tools button:focus{outline:none;}
@@ -189,6 +198,8 @@
 .doc .fn-ref a{border:none; font-size:.75em; padding:0 .1em;}
 .doc .footnotes{margin-top:3em; font-size:.9em; color:var(--doc-muted);}
 .doc .footnotes hr{margin-bottom:1em;} .doc .footnotes li{margin:.4em 0;} .doc .fn-back{border:none; margin-left:.3em;}
+@page{size:A4 portrait;margin:12mm;}
+@page wide-diagram{size:A4 landscape;margin:12mm;}
 @media print{
   .topbar,.sidebar,.status,.toast,.modal,.overlay,.mm-tools,.editor-pane,.scroll-nav,.blk-handle,.pop-menu,.cell-h,.sel-tools,.link-box,.blk-add-end,.chg-del,.chg-diff,.chg-nav,.chg-panel,.chg-banner{display:none !important;}
   .doc .blk[data-chg]::before{display:none !important;}
@@ -196,7 +207,9 @@
   .main,.content{display:block !important;} .preview-pane{overflow:visible;}
   .doc{--doc-bg:#fff; --doc-fg:#111; --doc-muted:#555; --doc-border:#ccc; --doc-code-bg:#f6f6f6; --doc-code-head:#eee; max-width:none; margin:0; padding:0; font-size:11.5pt;}
   .doc .mm-viewport{overflow:visible !important; height:auto !important;} .doc .mm-stage{transform:none !important;}
-  .doc .cb-actions,.doc .copy-btn,.doc .mm-toggle,.doc .mm-copy,.doc .h-anchor,.doc .mm-zoom{display:none !important;}
+  .doc .mm-stage svg{width:100% !important; height:auto !important; max-width:100% !important; max-height:245mm !important; object-fit:contain; margin:0 auto !important;}
+  .doc .diagram-print-wide{page:wide-diagram; break-before:page; break-after:page;}
+  .doc .cb-actions,.doc .copy-btn,.doc .mm-toggle,.doc .mm-copy,.doc .mm-flow-mode,.doc .mm-relations,.doc .h-anchor,.doc .mm-zoom{display:none !important;}
   .doc .code-block,.doc .diagram-block,.doc table,.doc blockquote,.doc .callout,.doc pre{page-break-inside:avoid;}
   .doc .diagram-block[data-view] .diagram-source{display:none !important;}
   body{overflow:visible; height:auto; display:block;}

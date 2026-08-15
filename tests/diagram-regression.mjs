@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 
 import { cleanLabel, seriesClass } from '../src/diagrams/base.js';
 import { parse as parseFlow } from '../src/diagrams/flowchart.js';
+import { parseSequence, layoutSequence } from '../src/diagrams/extras.js';
+import { sequenceLongMessagesWithNotes, flowchartSixSiblingSubgraphs,
+  mermaidCaseExpectations } from './fixtures/mermaid-cases.mjs';
 import {
   detect, registerRenderer, renderDiagram, renderFencedDiagram,
   supported, supportsFence, UnsupportedDiagram,
@@ -58,6 +61,58 @@ assert.deepEqual(graph.styles.get('A'), {
 assert.deepEqual(graph.styles.get('C'), { fill: '#7c3aed', color: '#fff', stroke: '#6d28d9' });
 assert.equal(cleanLabel('&amp;#123; &#123; &#x5b;'), '&#123; { [');
 assert.equal(seriesClass(8), 'dg-s7');
+
+const sequenceModel = parseSequence(sequenceLongMessagesWithNotes);
+assert.equal(sequenceModel.actors.length, mermaidCaseExpectations.sequence.actors);
+assert.equal(sequenceModel.events.filter((event) => event.type === 'message').length, mermaidCaseExpectations.sequence.messages);
+assert.equal(sequenceModel.events.filter((event) => event.type === 'note').length, mermaidCaseExpectations.sequence.notes);
+const sequenceLayout = layoutSequence(sequenceModel);
+assert.ok(sequenceLayout.width > 508, `长消息时序图应按内容扩展画布：${sequenceLayout.width}`);
+assert.ok(sequenceLayout.events.some((event) => event.type === 'message' && event.lines.length > 1));
+const sequenceSvg = await renderDiagram(sequenceLongMessagesWithNotes);
+assert.match(sequenceSvg, /class="dg-note"/);
+assert.match(sequenceSvg, /品牌名念错/);
+assert.match(sequenceSvg, /data|viewBox="0 0 \d+ \d+"/);
+
+const suppliedArchitecture = parseFlow(flowchartSixSiblingSubgraphs, 'flow');
+assert.equal(suppliedArchitecture.groups.length, mermaidCaseExpectations.flowchart.groups);
+assert.equal(suppliedArchitecture.nodes.size, mermaidCaseExpectations.flowchart.nodes);
+const architectureSvg = await renderDiagram(flowchartSixSiblingSubgraphs);
+assert.match(architectureSvg, /data-flow-view="overview"/);
+assert.match(architectureSvg, /data-bundle-count="8"/);
+assert.match(architectureSvg, /data-cross-group-edge-count="16"/);
+const groupBoxes = [...architectureSvg.matchAll(/<rect x="([\d.-]+)" y="([\d.-]+)" width="([\d.-]+)" height="([\d.-]+)" rx="14" class="dg-group/g)]
+  .map((match) => match.slice(1, 5).map(Number));
+const boxOverlap = ([ax, ay, aw, ah], [bx, by, bw, bh]) => ax < bx + bw && ax + aw > bx
+  && ay < by + bh && ay + ah > by;
+assert.equal(groupBoxes.length, mermaidCaseExpectations.flowchart.groups);
+assert.equal(groupBoxes.some((box, i) => groupBoxes.slice(i + 1).some((other) => boxOverlap(box, other))), false);
+const architectureViewBox = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(architectureSvg)?.slice(1).map(Number);
+assert.ok(architectureViewBox && architectureViewBox[0] > architectureViewBox[1],
+  `大型分层架构应横向展开：${architectureViewBox}`);
+const architecturePaths = [...architectureSvg.matchAll(/<path d="([^"]+)" class="dg-edge(?:\s|\")/g)].map((match) => match[1]);
+assert.equal(architecturePaths.length, 8, '概览只保留 8 条组内短关系');
+assert.equal(architecturePaths.some((pathData) => /\bC/.test(pathData)), false,
+  '复合分组图的边必须由正交通道路由，不能回退成自由贝塞尔线');
+assert.equal((architectureSvg.match(/class="dg-bundle(?:\s|\")/g) || []).length, 8,
+  '16 条跨组明细边必须聚合成 8 条关系束');
+assert.equal((architectureSvg.match(/class="dg-bundle-hit"/g) || []).length, 8);
+assert.equal((architectureSvg.match(/class="dg-bundle-label/g) || []).length, 8);
+const bundleMembers = [...architectureSvg.matchAll(/data-bundle-members="([^"]+)"/g)]
+  .filter((match, index, all) => all.findIndex((item) => item[1] === match[1]) === index)
+  .flatMap((match) => match[1].split(','));
+assert.equal(bundleMembers.length, 16);
+assert.equal(new Set(bundleMembers).size, 16, '每条跨组原始边必须恰好归属一个关系束');
+assert.match(architectureSvg, />4 项<\/text>/);
+assert.match(architectureSvg, />回传 · 1 项<\/text>/);
+assert.equal((architectureSvg.match(/data-node-id=/g) || []).length, 24);
+const detailArchitectureSvg = await renderDiagram(flowchartSixSiblingSubgraphs, { view: 'detail' });
+assert.match(detailArchitectureSvg, /data-flow-view="detail"/);
+assert.equal((detailArchitectureSvg.match(/<path d="[^"]+" class="dg-edge(?:\s|\")/g) || []).length, 24);
+const routingMetrics = Object.fromEntries([...detailArchitectureSvg.matchAll(/data-routing-([^=]+)="([^"]+)/g)]
+  .map((match) => [match[1], Number(match[2])]));
+assert.ok(routingMetrics.crossings <= 16, `明细图交叉数不得回归：${routingMetrics.crossings}`);
+assert.equal(routingMetrics.overlaps, 0, `明细图不得出现重叠通道：${routingMetrics.overlaps}`);
 
 const userFlowWithLabels = `flowchart LR
   H2["<b>H2 质量</b><br/>方案敢不敢用"] -->|"不成立则<br/>全盘归零"| H1["<b>H1 效率</b><br/>快不快"]
