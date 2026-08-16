@@ -160,11 +160,13 @@
 .doc pre{margin:0; padding:14px 16px; overflow-x:auto;}
 .doc pre code{font-family:var(--doc-mono); font-size:.78em; line-height:1.6; background:none; padding:0; color:inherit;}
 /* diagram + pan/zoom */
-.doc .diagram-render{position:relative; padding:0; min-height:60px;}
-.doc .mm-viewport{position:relative; overflow:hidden; cursor:grab; background:transparent; touch-action:pan-y; outline:none;}
+.doc .diagram-render{position:relative; padding:0; min-height:60px; min-width:0; width:100%;}
+.doc .mm-viewport{position:relative; overflow:hidden; cursor:grab; background:transparent; touch-action:pan-y; outline:none; min-width:0; width:100%;}
 .doc .mm-viewport:focus-visible{box-shadow:inset 0 0 0 2px var(--doc-accent); border-radius:8px;}
 .doc .mm-viewport.grabbing{cursor:grabbing; touch-action:none;}
 .doc .mm-stage{transform-origin:0 0; will-change:transform;}
+/* 未拿到有效容器尺寸前不展示原始 1× SVG；visibility 仍允许浏览器量尺寸。 */
+.doc .mm-viewport[data-fit-state=pending] .mm-stage{visibility:hidden;}
 /* margin:0 —— 画布里的图由 transform 负责居中，SVG 自己不许再居中一次。
    diagrams.css 的 .dg{margin:0 auto} 是给「直接嵌在文章里」的图写的；
    在 .mm-stage 里它会和 fit() 的平移叠加，图就偏右（见 prepSvg 的注释）。
@@ -213,7 +215,7 @@
   .doc .find-match-block,.doc .find-current-block{outline:none !important; box-shadow:none !important;}
   .main,.content{display:block !important;} .preview-pane{overflow:visible;}
   .doc{--doc-bg:#fff; --doc-fg:#111; --doc-muted:#555; --doc-border:#ccc; --doc-code-bg:#f6f6f6; --doc-code-head:#eee; max-width:none; margin:0; padding:0; font-size:11.5pt;}
-  .doc .mm-viewport{overflow:visible !important; height:auto !important;} .doc .mm-stage{transform:none !important;}
+  .doc .mm-viewport{overflow:visible !important; height:auto !important;} .doc .mm-stage{transform:none !important; visibility:visible !important;}
   .doc .mm-stage svg{width:100% !important; height:auto !important; max-width:100% !important; max-height:245mm !important; object-fit:contain; margin:0 auto !important;}
   .doc .diagram-print-wide{page:wide-diagram; break-before:page; break-after:page;}
   .doc .cb-actions,.doc .copy-btn,.doc .mm-toggle,.doc .mm-copy,.doc .mm-flow-mode,.doc .mm-relations,.doc .h-anchor,.doc .mm-zoom{display:none !important;}

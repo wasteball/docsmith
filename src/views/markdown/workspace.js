@@ -527,18 +527,115 @@
     if (!w) { var r = svg.getBoundingClientRect(); w = r.width; h = r.height; }
     return { w: w || 600, h: h || 400 };
   }
-  /** 行内图表的高度上限：跟着窗口走，小屏上不至于占满整屏 */
+  /** 行内图表的高度上限取真实阅读表面，而不是只看 window。
+      外壳、浏览器缩放或显示器切换都可能让两者不同；只使用 CSS 像素，DPR
+      仅作为“布局环境变了”的信号，绝不能再乘进宽高。 */
+  function diagramSurfaceH() {
+    var values = [];
+    function take(value) { value = Number(value); if (isFinite(value) && value >= 50) values.push(value); }
+    try { take(previewPane && previewPane.getBoundingClientRect().height); } catch (e) {}
+    try { take(window.visualViewport && window.visualViewport.height); } catch (e) {}
+    take(document.documentElement && document.documentElement.clientHeight);
+    take(window.innerHeight);
+    return values.length ? Math.min.apply(Math, values) : 900;
+  }
   function diagramMaxH() {
-    var vh = window.innerHeight || 900;
-    return Math.max(300, Math.min(760, Math.round(vh * 0.66)));
+    return Math.max(300, Math.min(760, Math.round(diagramSurfaceH() * 0.66)));
   }
 
   var MM_PAD = 14;
-  /* MM_MIN 从 0.08 降到 0.02：侧边栏常态只有 300–400px 宽，而一张 3572px 宽的
-     流程图要整个塞进去得缩到 0.05 上下。下限卡在 0.08，就等于「这张图永远
-     显示不全」—— 那正是用户截图里「图表被裁剪」的一半原因。
-     0.02 足够容纳任何真实图表，同时仍然拦住除零之类的病态值。 */
+  /* MM_MIN 只限制用户交互，不能限制 auto-fit。否则极宽的 SVG 算出 0.01，
+     却被抬到 0.02 后仍会超出 overflow:hidden 的视口。 */
   var MM_MIN = 0.02, MM_MAX = 12;
+
+  /** 唯一的适配公式。输入输出都是 CSS 像素；SVG 的 viewBox 是固有尺寸来源。 */
+  function computeDiagramFit(d, vpW, availableH, options) {
+    options = options || {};
+    var w = Number(d && d.w), h = Number(d && d.h);
+    vpW = Number(vpW); availableH = Number(availableH);
+    if (!isFinite(w) || !isFinite(h) || w <= 0 || h <= 0 ||
+        !isFinite(vpW) || !isFinite(availableH) || vpW < 50 || availableH < 50) return null;
+    var cap = options.allowUpscale ? 3 : 1;
+    var k = Math.min((vpW - MM_PAD * 2) / w, (availableH - MM_PAD * 2) / h, cap);
+    if (!isFinite(k) || k <= 0) return null;
+    /* auto-fit 的下限由“能否完整放下”决定，不经过 MM_MIN。 */
+    k = Math.min(cap, Math.max(0.000001, k));
+    var boxH = options.setHeight
+      ? Math.max(120, Math.round(h * k + MM_PAD * 2))
+      : availableH;
+    return {
+      scale: k,
+      height: boxH,
+      x: (vpW - w * k) / 2,
+      y: (boxH - h * k) / 2,
+      width: w * k,
+      diagramHeight: h * k
+    };
+  }
+
+  /* 所有图共用一组全局布局触发器。单张图只注册自己的 viewport；这样一篇有
+     十几张图时，window / visualViewport 上也始终只有一套监听。 */
+  var diagramLayouts = [], diagramLayoutRaf = 0, diagramLayoutTimer = 0;
+  var diagramLayoutReason = 'layout', diagramResizeObserver = null, diagramLayoutGlobals = false;
+  function runDiagramLayouts(reason) {
+    diagramLayoutRaf = 0;
+    var list = diagramLayouts.slice();
+    list.forEach(function (item) {
+      if (!item.vp.isConnected) { unregisterDiagramLayout(item.api, item.vp); return; }
+      item.api.reconcile(reason || diagramLayoutReason, false);
+    });
+  }
+  function scheduleDiagramLayout(reason, quiet) {
+    diagramLayoutReason = reason || diagramLayoutReason;
+    if (!diagramLayoutRaf) diagramLayoutRaf = requestAnimationFrame(function () { runDiagramLayouts(diagramLayoutReason); });
+    if (quiet) {
+      clearTimeout(diagramLayoutTimer);
+      diagramLayoutTimer = setTimeout(function () { runDiagramLayouts(reason || 'layout-settled'); }, 120);
+    }
+  }
+  function ensureDiagramLayoutCoordinator() {
+    if (!diagramResizeObserver && typeof ResizeObserver === 'function') {
+      diagramResizeObserver = new ResizeObserver(function () { scheduleDiagramLayout('resize-observer', true); });
+      try { if (previewPane) diagramResizeObserver.observe(previewPane); } catch (e) {}
+    }
+    if (diagramLayoutGlobals) return;
+    diagramLayoutGlobals = true;
+    window.addEventListener('resize', function () { scheduleDiagramLayout('window-resize', true); });
+    window.addEventListener('pageshow', function () { scheduleDiagramLayout('pageshow', false); });
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) scheduleDiagramLayout('visibility', false);
+    });
+    try {
+      if (window.visualViewport) window.visualViewport.addEventListener('resize', function () {
+        scheduleDiagramLayout('visual-viewport-resize', true);
+      });
+    } catch (e) {}
+  }
+  function registerDiagramLayout(api, vp) {
+    ensureDiagramLayoutCoordinator();
+    diagramLayouts.push({ api: api, vp: vp });
+    try { if (diagramResizeObserver) diagramResizeObserver.observe(vp); } catch (e) {}
+  }
+  function unregisterDiagramLayout(api, vp) {
+    diagramLayouts = diagramLayouts.filter(function (item) { return item.api !== api; });
+    try { if (diagramResizeObserver && vp) diagramResizeObserver.unobserve(vp); } catch (e) {}
+  }
+  function refreshDiagramLayout(reason, attempt) {
+    attempt = attempt || 0;
+    runDiagramLayouts(reason || 'refresh');
+    diagramLayouts.forEach(function (item) { item.api.flush(); });
+    return nextPaint().then(function () {
+      runDiagramLayouts(reason || 'refresh');
+      diagramLayouts.forEach(function (item) { item.api.flush(); });
+      var pending = diagramLayouts.some(function (item) {
+        if (!item.vp.isConnected) return false;
+        var r = item.vp.getBoundingClientRect();
+        return r.width >= 50 && r.height >= 50 && item.vp.dataset.fitState !== 'ready';
+      });
+      if (pending && attempt < 8) return refreshDiagramLayout(reason, attempt + 1);
+      return nextPaint();
+    });
+  }
 
   function createPanZoom(vp, stage, opts) {
     opts = opts || {};
@@ -546,95 +643,109 @@
     var ac = (typeof AbortController === 'function') ? new AbortController() : null;
     var sigOpt = ac ? { signal: ac.signal } : false;
     var st = { s: 1, x: 0, y: 0 }, base = { s: 1, x: 0, y: 0 };
-    var touched = false, raf = 0, dead = false, ro = null;
+    var mode = 'auto-fit', layout = null, fitReady = false, raf = 0, dead = false;
+    vp.dataset.fitState = 'pending';
 
-    function paint() { raf = 0; stage.style.transform = 'translate(' + st.x.toFixed(1) + 'px,' + st.y.toFixed(1) + 'px) scale(' + st.s.toFixed(4) + ')'; label(); }
+    function paint() {
+      raf = 0;
+      stage.style.transform = 'translate(' + st.x.toFixed(1) + 'px,' + st.y.toFixed(1) + 'px) scale(' + st.s.toFixed(4) + ')';
+      label();
+      if (fitReady) vp.dataset.fitState = 'ready';
+    }
     function apply() { if (!raf && !dead) raf = requestAnimationFrame(paint); }
     function flush() { if (dead) return; if (raf) { cancelAnimationFrame(raf); raf = 0; } paint(); }
     function label() {
       var el = opts.tools && opts.tools.querySelector('[data-zoomlabel]');
       if (el) el.textContent = Math.round(st.s * 100) + '%';
     }
-    function clamp(v) { return Math.min(MM_MAX, Math.max(MM_MIN, v)); }
-
+    function userClamp(v) {
+      var min = Math.min(MM_MIN, base.s > 0 ? base.s : MM_MIN);
+      return Math.min(MM_MAX, Math.max(min, v));
+    }
+    function measureLayout() {
+      var rect = vp.getBoundingClientRect();
+      var width = rect.width || vp.clientWidth || 0;
+      var height = opts.setHeight
+        ? (opts.maxH ? opts.maxH() : 620)
+        : (rect.height || vp.clientHeight || 0);
+      if (!isFinite(width) || !isFinite(height) || width < 50 || height < 50) return null;
+      return {
+        width: width,
+        height: height,
+        dpr: Number(window.devicePixelRatio) || 1,
+        kind: opts.setHeight ? 'inline' : 'fixed'
+      };
+    }
+    function sameLayout(a, b) {
+      return !!a && !!b && a.kind === b.kind &&
+        Math.abs(a.width - b.width) <= 1 && Math.abs(a.height - b.height) <= 1 &&
+        Math.abs(a.dpr - b.dpr) <= 0.001;
+    }
+    function commitFit(nextLayout) {
+      var fit = computeDiagramFit(d, nextLayout.width, nextLayout.height, {
+        setHeight: !!opts.setHeight,
+        allowUpscale: !!opts.allowUpscale
+      });
+      if (!fit) { fitReady = false; vp.dataset.fitState = 'pending'; return false; }
+      if (opts.setHeight) vp.style.height = fit.height + 'px';
+      st = { s: fit.scale, x: fit.x, y: fit.y };
+      base = { s: fit.scale, x: fit.x, y: fit.y };
+      layout = nextLayout; mode = 'auto-fit'; fitReady = true; apply();
+      return true;
+    }
+    /** 外部布局变化才使 user-view 失效；相同几何下 observer 不冲掉用户视角。 */
+    function reconcile(reason, force) {
+      if (dead) return false;
+      var next = measureLayout();
+      if (!next) { if (!fitReady) vp.dataset.fitState = 'pending'; return false; }
+      var changed = !sameLayout(layout, next);
+      if (force || !fitReady || changed) return commitFit(next);
+      return true;
+    }
+    /** Fit 是用户的明确动作，始终以当前真实尺寸重建 base。 */
+    function fit() { return reconcile('fit', true); }
     function set(s, x, y, isBase) {
-      st.s = clamp(s); st.x = x; st.y = y;
-      if (isBase) { base = { s: st.s, x: x, y: y }; touched = false; }
-      apply();
+      st = { s: userClamp(s), x: x, y: y };
+      if (isBase) { base = { s: st.s, x: x, y: y }; mode = 'auto-fit'; }
+      else mode = 'user-view';
+      fitReady = true; apply();
     }
     function zoomAt(f, cx, cy) {
-      var ns = clamp(st.s * f);
+      if (!fitReady && !reconcile('zoom', true)) return;
+      var ns = userClamp(st.s * f);
       if (ns === st.s) return;
       var r = vp.getBoundingClientRect();
       cx = cx == null ? r.width / 2 : cx;
       cy = cy == null ? r.height / 2 : cy;
       st.x = cx - (cx - st.x) * (ns / st.s);
       st.y = cy - (cy - st.y) * (ns / st.s);
-      st.s = ns; touched = true; apply();
-    }
-    /** 把整张图放进当前视口。容器高度也在这里定。
-
-        缩放比先夹进合法区间，**然后**再算容器高度和居中偏移 —— 三个数必须
-        出自同一个 k，否则又是裁剪。
-        以前的写法是：算出 k → 用 k 算 boxH → set(k)，而 set() 里面又偷偷把 k
-        夹到 [MM_MIN, MM_MAX]。窄面板配超宽图（截图里那张 3572px 宽的）时 k
-        会小于 MM_MIN，于是「渲染用的是 MM_MIN，高度和位置是按更小的 k 算的」
-        —— 视口 overflow:hidden，图就被横着切掉一截。
-        文件头那段注释说这个问题修过，其实只修了高度那一半，clamp 这一半没修。
-        现在先夹后算，两边永远对得上。 */
-    function fit(tries) {
-      if (dead) return;
-      /* 宽度用 getBoundingClientRect 而不是 clientWidth：
-         clientWidth 是取整后的整数，图表是逐个顺序渲染的（见 renderDiagrams 的
-         step()），挂载那一刻容器可能还在布局中间态 —— 差一两个像素，
-         图就会看着偏左一点，多张图叠起来就很明显（用户说的「没有居中」）。
-         rect.width 是亚像素精度，且必要时下面还会再校一次。 */
-      var rect = vp.getBoundingClientRect();
-      var vpW = rect.width || vp.clientWidth || 0;
-      if (vpW < 50 && (tries || 0) < 12) { requestAnimationFrame(function () { fit((tries || 0) + 1); }); return; }
-      if (!vpW) vpW = Math.max(280, (preview.clientWidth || 700) - 40);
-      var maxH = opts.setHeight ? (opts.maxH ? opts.maxH() : 620) : (vp.clientHeight || 480);
-      var k = Math.min((vpW - MM_PAD * 2) / d.w, (maxH - MM_PAD * 2) / d.h, opts.allowUpscale ? 3 : 1);
-      if (!isFinite(k) || k <= 0) k = 1;
-      k = clamp(k);                    // ← 先夹。下面所有数都用这个 k。
-      var boxH = opts.setHeight
-        ? Math.max(120, Math.round(d.h * k + MM_PAD * 2))
-        : (vp.clientHeight || Math.round(d.h * k + MM_PAD * 2));
-      if (opts.setHeight) vp.style.height = boxH + 'px';
-      set(k, (vpW - d.w * k) / 2, (boxH - d.h * k) / 2, true);
-
-      /* 设完高度之后再量一次：改 height 可能带来滚动条出现/消失，宽度随之变化。
-         真变了就按新宽度重算一次居中（只做一轮，不会来回抖）。 */
-      if (opts.setHeight && !(tries || 0)) {
-        requestAnimationFrame(function () {
-          if (dead || touched) return;
-          var w2 = vp.getBoundingClientRect().width;
-          if (w2 && Math.abs(w2 - vpW) > 1) fit(1);
-        });
-      }
+      st.s = ns; mode = 'user-view'; apply();
     }
     function actual() {
       var r = vp.getBoundingClientRect();
-      set(1, (r.width - d.w) / 2, Math.max(MM_PAD, (r.height - d.h) / 2));
-      touched = true;
+      st = { s: 1, x: (r.width - d.w) / 2, y: Math.max(MM_PAD, (r.height - d.h) / 2) };
+      mode = 'user-view'; fitReady = true; apply();
     }
-    function reset() { set(base.s, base.x, base.y); touched = false; }
+    function reset() {
+      var next = measureLayout();
+      if (next && !sameLayout(layout, next)) { commitFit(next); return; }
+      st = { s: base.s, x: base.x, y: base.y };
+      mode = 'auto-fit'; fitReady = true; apply();
+    }
 
-    /* --- 拖拽：pointer 事件 + 指针捕获。指针跑出视口也不丢，
-           而且不需要任何 window 级监听器 —— 泄漏从源头上没有了。 --- */
+    /* --- 拖拽：pointer 事件 + 指针捕获。指针跑出视口也不丢。 --- */
     var dragId = null, px = 0, py = 0;
     vp.addEventListener('pointerdown', function (e) {
       if (e.button != null && e.button !== 0) return;
       if (e.target.closest && e.target.closest('.mm-tools')) return;
       dragId = e.pointerId; px = e.clientX; py = e.clientY;
       try { vp.setPointerCapture(e.pointerId); } catch (err) {}
-      vp.classList.add('grabbing');
-      e.preventDefault();
+      vp.classList.add('grabbing'); e.preventDefault();
     }, sigOpt);
     vp.addEventListener('pointermove', function (e) {
       if (dragId !== e.pointerId) return;
       st.x += e.clientX - px; st.y += e.clientY - py;
-      px = e.clientX; py = e.clientY; touched = true; apply();
+      px = e.clientX; py = e.clientY; mode = 'user-view'; apply();
     }, sigOpt);
     function endDrag(e) {
       if (dragId !== e.pointerId) return;
@@ -645,13 +756,6 @@
     vp.addEventListener('pointerup', endDrag, sigOpt);
     vp.addEventListener('pointercancel', endDrag, sigOpt);
 
-    /* 滚轮 = 缩放，行内和全屏一样，不用按 Ctrl。
-       （用户要求对齐 md-html-workspace.html 的手感：鼠标在图上滚就是缩放。）
-
-       代价说清楚：鼠标停在图表上时滚轮不再滚动页面 —— 想接着往下读得先把
-       指针移开图表。所以只有真的落在画布上才拦，图表以外的一切照常滚动。
-       opts.wheelZoom === false 仍然保留「必须按 Ctrl」的老行为，留给以后
-       可能出现的、不该抢滚轮的场景。 */
     vp.addEventListener('wheel', function (e) {
       if (opts.wheelZoom === false && !e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
@@ -661,10 +765,6 @@
       zoomAt(f, e.clientX - r.left, e.clientY - r.top);
     }, ac ? { passive: false, signal: ac.signal } : { passive: false });
 
-    /* 双击：正常情况下在「适应」和 1:1 之间来回。
-       但如果这张图在行内被缩得很小（侧边栏里的宽图常常只有 0.1 倍），
-       跳到 1:1 也帮不上忙 —— 只能看见左上角一小块。这种时候直接开全屏，
-       那才是用户双击时真正想要的：「我要看清这张图」。 */
     vp.addEventListener('dblclick', function (e) {
       if (e.target.closest && e.target.closest('.mm-tools')) return;
       e.preventDefault();
@@ -672,44 +772,42 @@
       if (Math.abs(st.s - base.s) < 0.01) actual(); else reset();
     }, sigOpt);
 
-    /* 键盘：视口可聚焦，方向键平移，+/-/0/1 缩放 */
     vp.addEventListener('keydown', function (e) {
       var step = e.shiftKey ? 60 : 24, hit = true;
       if (e.key === '+' || e.key === '=') zoomAt(1.25);
       else if (e.key === '-' || e.key === '_') zoomAt(1 / 1.25);
       else if (e.key === '0') fit();
       else if (e.key === '1') actual();
-      else if (e.key === 'ArrowLeft') { st.x += step; touched = true; apply(); }
-      else if (e.key === 'ArrowRight') { st.x -= step; touched = true; apply(); }
-      else if (e.key === 'ArrowUp') { st.y += step; touched = true; apply(); }
-      else if (e.key === 'ArrowDown') { st.y -= step; touched = true; apply(); }
+      else if (e.key === 'ArrowLeft') { st.x += step; mode = 'user-view'; apply(); }
+      else if (e.key === 'ArrowRight') { st.x -= step; mode = 'user-view'; apply(); }
+      else if (e.key === 'ArrowUp') { st.y += step; mode = 'user-view'; apply(); }
+      else if (e.key === 'ArrowDown') { st.y -= step; mode = 'user-view'; apply(); }
       else hit = false;
       if (hit) e.preventDefault();
     }, sigOpt);
 
-    /* 容器宽度变了（侧栏开合、窗口缩放）就重新适应 —— 但只在用户还没
-       手动缩放过的时候，否则会把他调好的视角冲掉。 */
-    if (typeof ResizeObserver === 'function') {
-      var t = 0;
-      ro = new ResizeObserver(function () {
-        if (dead || touched) return;
-        clearTimeout(t); t = setTimeout(function () { if (!dead && !touched) fit(0); }, 120);
-      });
-      try { ro.observe(vp); } catch (e) {}
+    function snapshot() {
+      return {
+        scale: st.s, x: st.x, y: st.y,
+        baseScale: base.s, baseX: base.x, baseY: base.y,
+        mode: mode, ready: fitReady, dims: { w: d.w, h: d.h },
+        layout: layout ? { width: layout.width, height: layout.height, dpr: layout.dpr, kind: layout.kind } : null
+      };
     }
-
     var api = {
-      set: set, zoomAt: zoomAt, reset: reset, fit: fit, actual: actual, flush: flush,
+      set: set, zoomAt: zoomAt, reset: reset, fit: fit, actual: actual,
+      flush: flush, reconcile: reconcile, state: snapshot,
       get scale() { return st.s; },
       destroy: function () {
         if (dead) return; dead = true;
         if (raf) cancelAnimationFrame(raf);
-        if (ro) { try { ro.disconnect(); } catch (e) {} }
+        unregisterDiagramLayout(api, vp);
         if (ac) { try { ac.abort(); } catch (e) {} }
         if (vp.__pz === api) delete vp.__pz;
       }
     };
     vp.__pz = api;
+    registerDiagramLayout(api, vp);
     return api;
   }
 
@@ -870,7 +968,7 @@
     var probe = document.createElement('template'); probe.innerHTML = svgHtml;
     if (!probe.content.querySelector('svg')) throw new Error('图表没有生成 SVG');
     destroyPanZoom(target);
-    target.innerHTML = '<div class="mm-viewport" tabindex="0" role="img" aria-label="图表，可拖动和缩放">'
+    target.innerHTML = '<div class="mm-viewport" data-fit-state="pending" tabindex="0" role="img" aria-label="图表，可拖动和缩放">'
       + '<div class="mm-stage">' + svgHtml + '</div></div>' + toolsHtml(false);
     var vp = target.querySelector('.mm-viewport'), stage = target.querySelector('.mm-stage'), svg = stage.querySelector('svg');
     if (!svg) return;
@@ -897,12 +995,10 @@
     });
     bindTools(tools, pz, stage, d);
     bindDiagramTrace(vp, svg);
-    /* 两帧后 fit 才真正写 transform；只调一帧会让 readiness 已 resolve、
-       截图/导出已经开始时 stage 仍是 transform:none，看起来整张图贴在左边。 */
-    requestAnimationFrame(function () {
-      pz.fit(0);
-      requestAnimationFrame(function () { pz.fit(1); });
-    });
+    /* 可测量时同步落下首个 fit，避免 1× SVG 闪出来；不可测量（能力尚未激活）
+       就保持 pending，交给统一布局协调器在 reveal/resize 后完成。 */
+    if (pz.fit()) pz.flush();
+    scheduleDiagramLayout('diagram-mounted', false);
   }
   function sweepMermaidLeftovers() {
     document.querySelectorAll('body > div[id^="dmmd-"], body > div[id^="dmermaid-"]').forEach(function (n) { n.remove(); });
@@ -1066,13 +1162,13 @@
     setTimeout(finish, 180);
   }); }
   function settleDiagramViewports(scope) {
-    return nextPaint().then(function () {
-      Array.prototype.forEach.call(scope.querySelectorAll('.mm-viewport'), function (vp) {
-        if (!vp.__pz) return;
-        vp.__pz.fit(1);
-        /* fit 用 rAF 合并绘制；导出/验收不能在它真正落到 stage 前继续。 */
-        vp.__pz.flush();
+    return refreshDiagramLayout('readiness').then(function () {
+      var pending = Array.prototype.some.call(scope.querySelectorAll('.mm-viewport'), function (vp) {
+        if (!vp.__pz) return false;
+        var r = vp.getBoundingClientRect();
+        return r.width >= 50 && r.height >= 50 && vp.dataset.fitState !== 'ready';
       });
+      if (pending) throw new Error('图表画布仍在等待可用布局');
       return nextPaint();
     });
   }
@@ -1126,11 +1222,9 @@
       dims: d, tools: tools, setHeight: false, wheelZoom: true, allowUpscale: true
     });
     bindTools(tools, pz, stage, d);
-    requestAnimationFrame(function () {
-      pz.fit(0); pz.flush();
-      try { vp.focus({ preventScroll: true }); } catch (e) {}
-      requestAnimationFrame(function () { pz.fit(1); pz.flush(); });
-    });
+    if (pz.fit()) pz.flush();
+    try { vp.focus({ preventScroll: true }); } catch (e) {}
+    scheduleDiagramLayout('fullscreen-open', false);
   }
 
   /* ---------- overlay ------------------------------------------------- */
@@ -1170,7 +1264,9 @@
       img.style.maxWidth = 'none'; img.style.display = 'block';
       var pz = createPanZoom(vp, stage, { dims: d, tools: tools, setHeight: false, wheelZoom: true, allowUpscale: true });
       bindTools(tools, pz, stage, d);
-      requestAnimationFrame(function () { pz.fit(0); try { vp.focus({ preventScroll: true }); } catch (e) {} });
+      if (pz.fit()) pz.flush();
+      try { vp.focus({ preventScroll: true }); } catch (e) {}
+      scheduleDiagramLayout('lightbox-open', false);
     }
     img.onload = start;
     img.onerror = start;      // 加载失败也别卡住，兜底尺寸让画布能开
@@ -1349,6 +1445,7 @@
          Copy PNG 禁掉，是因为那颗只会复制图片；现在它复制"当前看到的东西"，
          两个视图下都有意义。 */
       syncMmLabel(blk.querySelector('.mm-copy'), next);
+      if (next === 'diagram') scheduleDiagramLayout('diagram-view', false);
     }
   });
   /* label 可选：代码块那几个按钮是英文的（Copy code / Copy image），闪 'Copied'；
@@ -1724,20 +1821,24 @@
     "var vb=svg.viewBox&&svg.viewBox.baseVal,d={w:(vb&&vb.width)||svg.clientWidth||600,h:(vb&&vb.height)||svg.clientHeight||400};",
     "svg.removeAttribute('width');svg.removeAttribute('height');",
     "svg.style.maxWidth='none';svg.style.margin='0';svg.style.width=d.w+'px';svg.style.height=d.h+'px';svg.style.display='block';",
-    "var st={s:1,x:0,y:0},base={s:1,x:0,y:0},raf=0;",
+    "var st={s:1,x:0,y:0},base={s:1,x:0,y:0},layout=null,mode='auto-fit',ready=false,raf=0,timer=0;",
+    "vp.dataset.fitState='pending';",
     "function paint(){raf=0;stage.style.transform='translate('+st.x.toFixed(1)+'px,'+st.y.toFixed(1)+'px) scale('+st.s.toFixed(4)+')';",
-    "var l=vp.parentNode.querySelector('[data-zoomlabel]');if(l)l.textContent=Math.round(st.s*100)+'%';}",
+    "var l=vp.parentNode.querySelector('[data-zoomlabel]');if(l)l.textContent=Math.round(st.s*100)+'%';if(ready)vp.dataset.fitState='ready';}",
     "function apply(){if(!raf)raf=requestAnimationFrame(paint);}",
-    "function clamp(v){return Math.min(MAX,Math.max(MIN,v));}",
-    "function fit(){",
-    "var vpW=vp.getBoundingClientRect().width||vp.clientWidth;if(!vpW)return;",
-    "var maxH=Math.max(300,Math.min(760,Math.round((window.innerHeight||900)*0.72)));",
-    "var k=clamp(Math.min((vpW-PAD*2)/d.w,(maxH-PAD*2)/d.h,1));",
-    "var boxH=Math.max(120,Math.round(d.h*k+PAD*2));vp.style.height=boxH+'px';",
-    "st.s=k;st.x=(vpW-d.w*k)/2;st.y=(boxH-d.h*k)/2;base={s:st.s,x:st.x,y:st.y};apply();}",
-    "function zoomAt(f,cx,cy){var ns=clamp(st.s*f);if(ns===st.s)return;",
+    "function surfaceH(){var a=[],take=function(v){v=Number(v);if(isFinite(v)&&v>=50)a.push(v);};",
+    "try{take(window.visualViewport&&window.visualViewport.height);}catch(x){}take(document.documentElement.clientHeight);take(window.innerHeight);return a.length?Math.min.apply(Math,a):900;}",
+    "function measure(){var w=vp.getBoundingClientRect().width||vp.clientWidth,h=Math.max(300,Math.min(760,Math.round(surfaceH()*.66)));",
+    "if(!isFinite(w)||w<50||!isFinite(h)||h<50)return null;return {width:w,height:h,dpr:Number(window.devicePixelRatio)||1};}",
+    "function same(a,b){return a&&b&&Math.abs(a.width-b.width)<=1&&Math.abs(a.height-b.height)<=1&&Math.abs(a.dpr-b.dpr)<=.001;}",
+    "function fit(force){var next=measure();if(!next){ready=false;vp.dataset.fitState='pending';return false;}",
+    "if(!force&&ready&&same(layout,next))return true;var k=Math.min((next.width-PAD*2)/d.w,(next.height-PAD*2)/d.h,1);if(!isFinite(k)||k<=0)return false;",
+    "k=Math.max(.000001,k);var boxH=Math.max(120,Math.round(d.h*k+PAD*2));vp.style.height=boxH+'px';",
+    "st={s:k,x:(next.width-d.w*k)/2,y:(boxH-d.h*k)/2};base={s:st.s,x:st.x,y:st.y};layout=next;mode='auto-fit';ready=true;apply();return true;}",
+    "function clamp(v){return Math.min(MAX,Math.max(Math.min(MIN,base.s||MIN),v));}",
+    "function zoomAt(f,cx,cy){if(!ready&&!fit(true))return;var ns=clamp(st.s*f);if(ns===st.s)return;",
     "var r=vp.getBoundingClientRect();cx=cx==null?r.width/2:cx;cy=cy==null?r.height/2:cy;",
-    "st.x=cx-(cx-st.x)*(ns/st.s);st.y=cy-(cy-st.y)*(ns/st.s);st.s=ns;apply();}",
+    "st.x=cx-(cx-st.x)*(ns/st.s);st.y=cy-(cy-st.y)*(ns/st.s);st.s=ns;mode='user-view';apply();}",
     /* 拖拽用 pointer + 指针捕获：手指/鼠标移出视口也不会丢 */
     "var drag=null,px=0,py=0;",
     "vp.addEventListener('pointerdown',function(e){if(e.button!=null&&e.button!==0)return;",
@@ -1745,7 +1846,7 @@
     "drag=e.pointerId;px=e.clientX;py=e.clientY;try{vp.setPointerCapture(e.pointerId);}catch(x){}",
     "vp.classList.add('grabbing');e.preventDefault();});",
     "vp.addEventListener('pointermove',function(e){if(drag!==e.pointerId)return;",
-    "st.x+=e.clientX-px;st.y+=e.clientY-py;px=e.clientX;py=e.clientY;apply();});",
+    "st.x+=e.clientX-px;st.y+=e.clientY-py;px=e.clientX;py=e.clientY;mode='user-view';apply();});",
     "function end(e){if(drag!==e.pointerId)return;drag=null;",
     "try{vp.releasePointerCapture(e.pointerId);}catch(x){}vp.classList.remove('grabbing');}",
     "vp.addEventListener('pointerup',end);vp.addEventListener('pointercancel',end);",
@@ -1755,15 +1856,18 @@
     "zoomAt(f,e.clientX-r.left,e.clientY-r.top);},{passive:false});",
     "vp.addEventListener('dblclick',function(e){if(e.target.closest&&e.target.closest('.mm-tools'))return;",
     "e.preventDefault();if(Math.abs(st.s-base.s)<0.01){var r=vp.getBoundingClientRect();",
-    "st.s=1;st.x=(r.width-d.w)/2;st.y=Math.max(PAD,(r.height-d.h)/2);apply();}else{st=({s:base.s,x:base.x,y:base.y});apply();}});",
+    "st.s=1;st.x=(r.width-d.w)/2;st.y=Math.max(PAD,(r.height-d.h)/2);mode='user-view';apply();}else{st={s:base.s,x:base.x,y:base.y};mode='auto-fit';apply();}});",
     "function flush(){if(raf){cancelAnimationFrame(raf);paint();}}",
-    "function snapshot(){return {scale:st.s,x:st.x,y:st.y,baseScale:base.s,baseX:base.x,baseY:base.y};}",
-    "var api={fit:fit,zoomAt:zoomAt,flush:flush,state:snapshot,",
-    "reset:function(){st={s:base.s,x:base.x,y:base.y};apply();},",
-    "actual:function(){var r=vp.getBoundingClientRect();st.s=1;st.x=(r.width-d.w)/2;st.y=Math.max(PAD,(r.height-d.h)/2);apply();}};",
-    "vp.__pz=api;fit();flush();",
-    "if(typeof ResizeObserver==='function'){var t=0;",
-    "try{new ResizeObserver(function(){clearTimeout(t);t=setTimeout(fit,120);}).observe(vp);}catch(x){}}",
+    "function snapshot(){return {scale:st.s,x:st.x,y:st.y,baseScale:base.s,baseX:base.x,baseY:base.y,mode:mode,ready:ready,layout:layout,dims:{w:d.w,h:d.h}};}",
+    "function reconcile(){var next=measure();if(!next)return false;if(!ready||!same(layout,next))return fit(true);return true;}",
+    "var api={fit:function(){return fit(true);},reconcile:reconcile,zoomAt:zoomAt,flush:flush,state:snapshot,",
+    "reset:function(){var next=measure();if(next&&!same(layout,next)){fit(true);return;}st={s:base.s,x:base.x,y:base.y};mode='auto-fit';apply();},",
+    "actual:function(){var r=vp.getBoundingClientRect();st.s=1;st.x=(r.width-d.w)/2;st.y=Math.max(PAD,(r.height-d.h)/2);mode='user-view';apply();}};",
+    "vp.__pz=api;fit(true);flush();",
+    "function changed(){reconcile();clearTimeout(timer);timer=setTimeout(function(){reconcile();},120);}",
+    "if(typeof ResizeObserver==='function'){try{new ResizeObserver(changed).observe(vp.parentNode);}catch(x){}}",
+    "window.addEventListener('resize',changed);if(window.visualViewport)try{window.visualViewport.addEventListener('resize',changed);}catch(x){}",
+    "window.addEventListener('pageshow',changed);document.addEventListener('visibilitychange',function(){if(!document.hidden)changed();});",
     "return api;}",
     /* 每张图配一条工具栏。图标和工作台里那套一致（见 MM_ICONS）。 */
     "var ICO={out:'<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"><circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"M20 20l-3.6-3.6M8 11h6\"/></svg>',",
@@ -2819,7 +2923,7 @@
     if (!el) return;
     FONT_CLASSES.forEach(function (f) { el.classList.toggle('font-' + f, font === f); });
   }
-  function applyReading() { preview.style.fontSize = settings.size + 'px'; preview.style.setProperty('--doc-measure', settings.width + 'px'); applyFontClass(preview, settings.font); var seg = function (n, v) { $$('.seg-opt[data-set="' + n + '"]').forEach(function (b) { b.classList.toggle('on', b.dataset.val === String(v)); }); }; seg('theme', appearNow().theme); seg('font', settings.font); seg('refresh', settings.refresh); var sz = $('#sizeRange'), wd = $('#widthRange'); if (sz) { sz.value = settings.size; $('#sizeVal').textContent = settings.size + 'px'; } if (wd) { wd.value = settings.width; $('#widthVal').textContent = settings.width + 'px'; } }
+  function applyReading() { preview.style.fontSize = settings.size + 'px'; preview.style.setProperty('--doc-measure', settings.width + 'px'); applyFontClass(preview, settings.font); var seg = function (n, v) { $$('.seg-opt[data-set="' + n + '"]').forEach(function (b) { b.classList.toggle('on', b.dataset.val === String(v)); }); }; seg('theme', appearNow().theme); seg('font', settings.font); seg('refresh', settings.refresh); var sz = $('#sizeRange'), wd = $('#widthRange'); if (sz) { sz.value = settings.size; $('#sizeVal').textContent = settings.size + 'px'; } if (wd) { wd.value = settings.width; $('#widthVal').textContent = settings.width + 'px'; } scheduleDiagramLayout('reading-setting', true); }
   function saveSettings() {
     store.set('font', settings.font); store.set('size', settings.size);
     store.set('width', settings.width); store.set('refresh', settings.refresh);
@@ -5243,6 +5347,7 @@
       ROOT.classList.toggle('side-collapsed', col);
       store.set('sideCollapsed', col ? '1' : '0');
     }
+    scheduleDiagramLayout('sidebar', true);
   }
   function closeMenus() { var m = $('#openMenu'); if (m) m.classList.remove('open'); var u = $('#urlPop'); if (u) u.classList.remove('open'); var c = $('#openCaret'); if (c) c.setAttribute('aria-expanded', 'false'); }
   function openUrlPop() { closeMenus(); $('#urlPop').classList.add('open'); setTimeout(function () { urlInput.focus(); urlInput.select(); }, 20); }
@@ -5401,7 +5506,7 @@
     document.addEventListener('click', function (e) { if (!panel.contains(e.target) && e.target.id !== 'settingsBtn') panel.classList.remove('open'); });
     $$('.seg-opt').forEach(function (b) { b.addEventListener('click', function () { var set = b.dataset.set, val = b.dataset.val; if (set === 'theme') { setAppearance({ theme: val }, 'local'); } else if (set === 'font') { settings.font = val; saveSettings(); applyReading(); } else if (set === 'refresh') { settings.refresh = parseInt(val, 10); saveSettings(); applyReading(); startAutoRefresh(); } }); });
     $('#sizeRange').addEventListener('input', function () { settings.size = parseInt(this.value, 10); $('#sizeVal').textContent = settings.size + 'px'; preview.style.fontSize = settings.size + 'px'; saveSettings(); });
-    $('#widthRange').addEventListener('input', function () { settings.width = parseInt(this.value, 10); $('#widthVal').textContent = settings.width + 'px'; preview.style.setProperty('--doc-measure', settings.width + 'px'); saveSettings(); });
+    $('#widthRange').addEventListener('input', function () { settings.width = parseInt(this.value, 10); $('#widthVal').textContent = settings.width + 'px'; preview.style.setProperty('--doc-measure', settings.width + 'px'); saveSettings(); scheduleDiagramLayout('reading-width', true); });
     $('#proxyChk').addEventListener('change', function () { store.set('proxy', this.checked ? '1' : '0'); });
     $('#cssApply').addEventListener('click', function () { applyCustomCss($('#cssArea').value); toast('Custom CSS applied.'); });
     $('#cssClear').addEventListener('click', function () { $('#cssArea').value = ''; applyCustomCss(''); toast('Custom CSS cleared.'); });
@@ -5613,6 +5718,9 @@
       applyReading();
       saveSettings();
     },
+
+    /* 外壳激活、测试和阅读区布局变更共用这条确定性刷新入口。 */
+    refreshDiagramLayout: function (reason) { return refreshDiagramLayout(reason || 'api'); },
 
     /* 导出：四种格式各自的实现，由 export-menu.js 组装成菜单 */
     whenDiagramsReady: function (opts) { return whenDiagramsReady(preview, opts); },

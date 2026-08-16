@@ -399,6 +399,8 @@ function mount(cap) {
       loader.remove();
       frameReady[cap.id] = true;
       flush(cap.id);
+      /* 可能先 activate、后异步挂载完成；这时再补一次定向布局通知。 */
+      if (activeId === cap.id) toFrame(host, 'capability-layout', { active: true, reason: 'mount-ready' });
     }).catch((err) => {
       loader.innerHTML = `<p class="frame-err">「${esc(cap.name)}」没能打开。<br>${esc(err.message || '')}</p>`;
     });
@@ -461,6 +463,7 @@ function activate(id, opts) {
   $$('.frame-load').forEach((l) => { l.hidden = l.dataset.for !== id; });
   saveShell({ activeId: id });
   renderNav();
+  if (frameReady[id]) toFrame(frames[id], 'capability-layout', { active: true, reason: 'activation' });
 
   if (opts?.file) {
     if (frameReady[id]) toFrame(frames[id], 'focusFile', { id: opts.file });

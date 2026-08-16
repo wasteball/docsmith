@@ -1,0 +1,284 @@
+import { flowchartResponsiveDisplay } from './fixtures/mermaid-cases.mjs';
+
+const source = `# Mermaid 显示器响应式回归
+
+\`\`\`mermaid
+${flowchartResponsiveDisplay}
+\`\`\``;
+const mount = document.querySelector('#mount');
+const fail = (message) => {
+  window.__responsiveMermaidSmoke = { error: String(message) };
+  document.body.dataset.rendered = 'error';
+  document.title = String(message);
+};
+const nextPaint = (target = window) => new Promise((resolve) =>
+  target.requestAnimationFrame(() => target.requestAnimationFrame(resolve)));
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const frame = document.createElement('iframe');
+frame.id = 'workspace';
+frame.src = '../src/views/markdown/index.html';
+
+frame.addEventListener('load', () => {
+  const win = frame.contentWindow;
+  const doc = frame.contentDocument;
+  const started = Date.now();
+  (function ready() {
+    if (win.MDW && win.DocsmithDiagrams) { run(); return; }
+    if (Date.now() - started > 15000) { fail('响应式测试工作台没有启动'); return; }
+    setTimeout(ready, 60);
+  })();
+
+  function diagram() {
+    const block = doc.querySelector('.diagram-block');
+    return {
+      block,
+      vp: block?.querySelector('.mm-viewport'),
+      stage: block?.querySelector('.mm-stage'),
+      svg: block?.querySelector('.mm-stage > svg'),
+    };
+  }
+
+  function approx(a, b, tolerance, message) {
+    if (Math.abs(a - b) > tolerance) throw new Error(`${message}：${a} / ${b}`);
+  }
+
+  function assertViewportContained(label, vp, graphic, expectedMode = 'auto-fit') {
+    if (!vp || !graphic || !vp.__pz?.state) throw new Error(`${label}：图表画布/API 缺失`);
+    vp.__pz.flush();
+    const state = vp.__pz.state();
+    if (!state.ready || vp.dataset.fitState !== 'ready') throw new Error(`${label}：画布仍为 pending`);
+    if (expectedMode && state.mode !== expectedMode) throw new Error(`${label}：模式为 ${state.mode}`);
+    const vr = vp.getBoundingClientRect(), sr = graphic.getBoundingClientRect(), eps = 1.2;
+    if (sr.left < vr.left - eps || sr.right > vr.right + eps || sr.top < vr.top - eps || sr.bottom > vr.bottom + eps) {
+      throw new Error(`${label}：SVG 超出视口 ${JSON.stringify({
+        viewport: [vr.left, vr.top, vr.right, vr.bottom],
+        svg: [sr.left, sr.top, sr.right, sr.bottom], state,
+      })}`);
+    }
+    approx((sr.left + sr.right) / 2, (vr.left + vr.right) / 2, 1.1, `${label}：横向未居中`);
+    approx((sr.top + sr.bottom) / 2, (vr.top + vr.bottom) / 2, 1.1, `${label}：纵向未居中`);
+    if (expectedMode === 'auto-fit') {
+      approx(state.scale, state.baseScale, 0.0001, `${label}：scale/base 不一致`);
+      approx(state.x, state.baseX, 0.2, `${label}：x/base 不一致`);
+      approx(state.y, state.baseY, 0.2, `${label}：y/base 不一致`);
+    }
+    return { width: vr.width, height: vr.height, scale: state.scale, dpr: state.layout?.dpr };
+  }
+
+  function assertContained(label, expectedMode = 'auto-fit') {
+    const { vp, svg } = diagram();
+    return assertViewportContained(label, vp, svg, expectedMode);
+  }
+
+  function assertSvgStructure() {
+    const { svg } = diagram();
+    if (!svg || svg.classList.contains('dg')) throw new Error('精确样例没有走官方 Mermaid');
+    const text = svg.textContent;
+    const expected = ['本产品负责', '本产品不负责', '理解用户意图', '合同与商务', 'IDSS 算法引擎', '专家 / 用户', '调用', '保留人工介入位'];
+    if (!expected.every((value) => text.includes(value))) throw new Error('精确样例关键文本丢失');
+    if (svg.querySelectorAll('.cluster').length !== 2 || svg.querySelectorAll('.node').length !== 11) {
+      throw new Error(`精确样例结构不完整：${svg.querySelectorAll('.cluster').length} clusters / ${svg.querySelectorAll('.node').length} nodes`);
+    }
+    const dashed = [...svg.querySelectorAll('.edgePath path,.flowchart-link')].filter((path) => {
+      const style = win.getComputedStyle(path);
+      return (style.strokeDasharray && style.strokeDasharray !== 'none') || path.getAttribute('stroke-dasharray');
+    });
+    if (dashed.length < 2) throw new Error(`精确样例虚线关系丢失：${dashed.length}`);
+    const vb = svg.viewBox.baseVal, bb = svg.getBBox(), eps = 1;
+    if (bb.x < vb.x - eps || bb.y < vb.y - eps || bb.x + bb.width > vb.x + vb.width + eps || bb.y + bb.height > vb.y + vb.height + eps) {
+      throw new Error('Mermaid viewBox 没有包住完整绘图 bbox');
+    }
+  }
+
+  async function resizeFrame(width, height, label) {
+    frame.style.width = `${width}px`;
+    frame.style.height = `${height}px`;
+    mount.style.width = `${width}px`;
+    mount.style.height = `${height}px`;
+    await win.MDW.refreshDiagramLayout(label);
+    await wait(160);
+    await win.MDW.refreshDiagramLayout(`${label}-settled`);
+    return assertContained(label);
+  }
+
+  async function assertRevealAfterZeroWidth() {
+    const { vp } = diagram();
+    const block = diagram().block;
+    const prior = block.style.display;
+    block.style.display = 'none';
+    vp.__pz.zoomAt(2); vp.__pz.flush();
+    if (vp.__pz.state().mode !== 'user-view') throw new Error('隐藏前没有建立用户视角');
+    frame.style.width = '820px'; frame.style.height = '680px';
+    mount.style.width = '820px'; mount.style.height = '680px';
+    await win.MDW.refreshDiagramLayout('hidden-zero-width');
+    block.style.display = prior;
+    await win.MDW.refreshDiagramLayout('revealed');
+    const result = assertContained('隐藏后恢复');
+    if (vp.__pz.state().mode !== 'auto-fit') throw new Error('隐藏后恢复仍保留旧 transform');
+    return result;
+  }
+
+  async function assertFullscreenResponsive() {
+    const button = diagram().block.querySelector('[data-z="full"]');
+    if (!button) throw new Error('全屏按钮缺失');
+    button.click();
+    await wait(80); await win.MDW.refreshDiagramLayout('fullscreen-test');
+    const overlay = doc.querySelector('#overlay');
+    const vp = overlay?.querySelector('.mm-viewport');
+    const svg = vp?.querySelector('svg');
+    if (!overlay?.classList.contains('open')) throw new Error('全屏画布没有打开');
+    const initial = assertViewportContained('全屏初始', vp, svg);
+    vp.__pz.zoomAt(2); vp.__pz.flush();
+    const zoomed = vp.__pz.state();
+    if (zoomed.mode !== 'user-view') throw new Error('全屏缩放没有进入 user-view');
+    frame.style.width = '760px'; frame.style.height = '640px';
+    mount.style.width = '760px'; mount.style.height = '640px';
+    await wait(180); await win.MDW.refreshDiagramLayout('fullscreen-resize');
+    const resized = assertViewportContained('全屏 resize', vp, svg);
+    if (vp.__pz.state().mode !== 'auto-fit') throw new Error('全屏 resize 后没有恢复 auto-fit');
+    overlay.querySelector('.overlay-close').click();
+    return { initial, resizeAfterZoom: resized };
+  }
+
+  async function assertPrintGeometry() {
+    const { vp, svg } = diagram();
+    const original = {
+      viewport: vp.getAttribute('style'),
+      stage: vp.querySelector('.mm-stage').getAttribute('style'),
+      svg: svg.getAttribute('style'),
+      fitState: vp.dataset.fitState,
+    };
+    const style = doc.createElement('style');
+    style.id = 'responsive-print-probe';
+    style.textContent = '.doc .mm-viewport{overflow:visible!important;height:auto!important}.doc .mm-stage{transform:none!important;visibility:visible!important}.doc .mm-stage svg{width:100%!important;height:auto!important;max-width:100%!important;max-height:245mm!important;object-fit:contain;margin:0 auto!important}';
+    vp.dataset.fitState = 'pending';
+    doc.head.append(style);
+    await nextPaint(win);
+    try {
+      const vr = vp.getBoundingClientRect(), sr = svg.getBoundingClientRect();
+      const stageStyle = win.getComputedStyle(vp.querySelector('.mm-stage'));
+      if (!sr.width || !sr.height || sr.width > vr.width + 1.2) throw new Error(`打印图表横向溢出：${sr.width} / ${vr.width}`);
+      if (stageStyle.transform !== 'none') throw new Error('打印图表仍带工作台 transform');
+      if (stageStyle.visibility !== 'visible') throw new Error('打印图表仍被 pending 状态隐藏');
+      return { viewportWidth: vr.width, svgWidth: sr.width, transform: 'none', visibility: 'visible' };
+    } finally {
+      style.remove();
+      vp.dataset.fitState = original.fitState;
+      const stage = vp.querySelector('.mm-stage');
+      const restore = (el, value) => value == null ? el.removeAttribute('style') : el.setAttribute('style', value);
+      restore(vp, original.viewport); restore(stage, original.stage); restore(svg, original.svg);
+      await win.MDW.refreshDiagramLayout('print-probe-restored');
+    }
+  }
+
+  async function assertExportResponsive() {
+    const html = await win.MDW.buildStandaloneHtml();
+    const exported = document.createElement('iframe');
+    exported.style.cssText = 'position:fixed;left:-3000px;top:0;width:920px;height:760px;border:0';
+    const loaded = new Promise((resolve) => exported.addEventListener('load', resolve, { once: true }));
+    exported.srcdoc = html;
+    document.body.append(exported);
+    await loaded;
+    await nextPaint(exported.contentWindow);
+    try {
+      const evp = exported.contentDocument.querySelector('.mm-viewport');
+      const esvg = evp?.querySelector('svg');
+      if (!evp?.__pz?.state || !esvg) throw new Error('独立 HTML 响应式 API 缺失');
+      const check = (label) => {
+        evp.__pz.flush();
+        const vr = evp.getBoundingClientRect(), sr = esvg.getBoundingClientRect(), state = evp.__pz.state(), eps = 1.2;
+        if (!state.ready || sr.left < vr.left - eps || sr.right > vr.right + eps || sr.top < vr.top - eps || sr.bottom > vr.bottom + eps) {
+          throw new Error(`${label}：独立 HTML 图表超出视口`);
+        }
+        return state;
+      };
+      check('独立 HTML 初始');
+      evp.__pz.zoomAt(2); evp.__pz.flush();
+      if (evp.__pz.state().mode !== 'user-view') throw new Error('独立 HTML 未进入 user-view');
+      exported.style.width = '560px'; exported.style.height = '520px';
+      await wait(240); await nextPaint(exported.contentWindow);
+      const resized = check('独立 HTML resize');
+      if (resized.mode !== 'auto-fit') throw new Error('独立 HTML resize 后没有恢复 auto-fit');
+      return { initial: true, resizeAfterZoom: true, mode: resized.mode };
+    } finally { exported.remove(); }
+  }
+
+  async function run() {
+    try {
+      win.MDW.applyReadingSetting('width', 860);
+      win.MDW.setText(source);
+      await win.MDW.whenDiagramsReady({ timeout: 30000, requireSuccess: true });
+      assertSvgStructure();
+      const initial = assertContained('初始');
+
+      const sizes = [];
+      sizes.push(await resizeFrame(800, 600, '800x600'));
+      sizes.push(await resizeFrame(1024, 768, '1024x768'));
+      sizes.push(await resizeFrame(1280, 720, '1280x720'));
+      sizes.push(await resizeFrame(1512, 900, '1512x900'));
+      sizes.push(await resizeFrame(1705, 1414, '1705x1414'));
+      sizes.push(await resizeFrame(1920, 1080, '1920x1080'));
+      sizes.push(await resizeFrame(2560, 1440, '2560x1440'));
+
+      /* 相同布局下保留用户视角；实质 resize 后必须丢弃旧 transform 并重新适配。 */
+      const { vp } = diagram();
+      vp.__pz.zoomAt(2); vp.__pz.flush();
+      const zoomed = vp.__pz.state();
+      if (zoomed.mode !== 'user-view' || zoomed.scale <= zoomed.baseScale) throw new Error('用户缩放状态没有建立');
+      await win.MDW.refreshDiagramLayout('same-layout');
+      if (vp.__pz.state().mode !== 'user-view') throw new Error('相同布局错误清除了用户视角');
+      await resizeFrame(930, 720, 'resize-after-zoom');
+      if (vp.__pz.state().mode !== 'auto-fit') throw new Error('布局改变后仍保留旧用户 transform');
+
+      /* 阅读宽度会改变 .doc 和 viewport 宽度，必须重新计算 base。 */
+      const beforeWidth = vp.__pz.state().layout.width;
+      win.MDW.applyReadingSetting('width', 560);
+      await wait(160); await win.MDW.refreshDiagramLayout('reading-width');
+      const narrowReading = assertContained('阅读宽度 560');
+      if (vp.__pz.state().layout.width >= beforeWidth - 10) throw new Error('阅读宽度变化没有进入布局签名');
+      win.MDW.applyReadingSetting('width', 1200);
+      await wait(160); await win.MDW.refreshDiagramLayout('reading-width-wide');
+      assertContained('阅读宽度 1200');
+
+      /* 工作台侧栏的 grid 过渡会连续改变正文宽度，静止后必须以最终尺寸适配。 */
+      doc.querySelector('#sideToggle').click();
+      await wait(260); await win.MDW.refreshDiagramLayout('sidebar-toggle');
+      assertContained('侧栏切换');
+      doc.querySelector('#sideToggle').click();
+      await wait(260); await win.MDW.refreshDiagramLayout('sidebar-restore');
+      assertContained('侧栏恢复');
+
+      /* source 隐藏 viewport，再切回 diagram，应以当前几何恢复。 */
+      const toggle = diagram().block.querySelector('.mm-toggle');
+      toggle.click();
+      if (diagram().block.dataset.view !== 'source') throw new Error('没有切到源码视图');
+      toggle.click();
+      await win.MDW.refreshDiagramLayout('diagram-view');
+      assertContained('源码切回图表');
+
+      const revealAfterZeroWidth = await assertRevealAfterZeroWidth();
+      const fullscreen = await assertFullscreenResponsive();
+      const print = await assertPrintGeometry();
+      const standalone = await assertExportResponsive();
+      const result = {
+        ready: true,
+        official: true,
+        structure: { clusters: 2, nodes: 11, dashedEdges: 2 },
+        initial,
+        sizes,
+        interactionMigration: true,
+        readingWidth: narrowReading,
+        sidebar: true,
+        sourceToggle: true,
+        revealAfterZeroWidth,
+        fullscreen,
+        print,
+        standalone,
+      };
+      window.__responsiveMermaidSmoke = result;
+      document.body.dataset.rendered = 'true';
+      document.title = JSON.stringify(result);
+    } catch (error) { fail(error.message); }
+  }
+});
+mount.append(frame);

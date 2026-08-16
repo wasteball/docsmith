@@ -1,3 +1,22 @@
+export const flowchartResponsiveDisplay = `flowchart TB
+    subgraph Y["本产品负责"]
+        Y1["理解用户意图<br/>转成算法参数"]
+        Y2["数据清洗与标准化"]
+        Y3["调度 IDSS 求解"]
+        Y4["结果解读与报告生成"]
+        Y5["全流程状态管理"]
+    end
+    subgraph N["本产品不负责"]
+        N1["选址算法本身<br/>（IDSS 已有）"]
+        N2["业务判断<br/>（政策/组织/场地可得性）"]
+        N3["线下尽调"]
+        N4["合同与商务"]
+    end
+    Y -.->|"调用"| IDSS["IDSS 算法引擎"]
+    N -.->|"保留人工介入位"| EXP["专家 / 用户"]
+    style Y fill:#e8f4ff,stroke:#39c
+    style N fill:#f0f0f0,stroke:#999`;
+
 export const sequenceLongMessagesWithNotes = `sequenceDiagram
     participant A as AI
     participant U as 用户

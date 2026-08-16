@@ -388,3 +388,12 @@ _on('setting', ({ key, value }) => {
   if (!key?.startsWith('reading.')) return;
   window.MDW?.applyReadingSetting?.(key.slice(8), value);
 });
+
+/* 外壳只向刚激活的能力发这条消息。合并模式下三个内置能力共用 bus handlers，
+   所以必须用 meta.host 对准 Markdown 根；iframe 模式没有 host，窗口已天然隔离。 */
+_on('capability-layout', ({ active, reason }, meta = {}) => {
+  if (!active) return;
+  const root = window.MDW?.root?.();
+  if (meta.host && meta.host !== root) return;
+  window.MDW?.refreshDiagramLayout?.(reason || 'activation');
+});
