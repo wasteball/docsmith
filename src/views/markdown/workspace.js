@@ -828,6 +828,36 @@
     if (!svgHtml || svgHtml.indexOf('&amp;') < 0) return svgHtml;
     return svgHtml.replace(/&amp;(gt|lt|amp|quot|apos|nbsp|#\d+|#x[0-9a-fA-F]+);/g, '&$1;');
   }
+  /* Keep Mermaid's SVG-only security model while restoring the formatting semantics it
+     serializes as escaped label text when htmlLabels is disabled. No HTML is parsed here:
+     supported tags are recognized from text nodes and translated to SVG tspans. */
+  function restoreMermaidSvgLabelFormatting(svg) {
+    if (!svg || svg.classList.contains('dg')) return;
+    Array.prototype.forEach.call(svg.querySelectorAll('g.label text'), function (text) {
+      var rows = text.querySelectorAll(':scope > tspan.text-outer-tspan.row');
+      var bold = false;
+      Array.prototype.forEach.call(rows, function (row) {
+        var parts = Array.prototype.slice.call(row.querySelectorAll(':scope > tspan.text-inner-tspan'));
+        if (!parts.length) return;
+        var changed = bold, output = [];
+        parts.forEach(function (part) {
+          var value = part.textContent || '';
+          var tokens = value.split(/(<\/?(?:b|strong)\s*>)/gi);
+          tokens.forEach(function (token) {
+            if (/^<(?:b|strong)\s*>$/i.test(token)) { bold = true; changed = true; return; }
+            if (/^<\/(?:b|strong)\s*>$/i.test(token)) { bold = false; changed = true; return; }
+            if (!token) return;
+            var span = part.cloneNode(false); span.textContent = token;
+            if (bold) span.setAttribute('font-weight', '700');
+            output.push(span);
+          });
+        });
+        if (!changed) return;
+        while (row.firstChild) row.removeChild(row.firstChild);
+        output.forEach(function (span) { row.appendChild(span); });
+      });
+    });
+  }
   function mountDiagram(target, svgHtml) {
     svgHtml = fixMermaidEntities(svgHtml);
     var language = target.closest('.diagram-block')?.dataset.diagramLanguage || 'mermaid';
@@ -844,6 +874,7 @@
       + '<div class="mm-stage">' + svgHtml + '</div></div>' + toolsHtml(false);
     var vp = target.querySelector('.mm-viewport'), stage = target.querySelector('.mm-stage'), svg = stage.querySelector('svg');
     if (!svg) return;
+    restoreMermaidSvgLabelFormatting(svg);
     var d = svgDims(svg); prepSvg(svg, d);
     var block = target.closest('.diagram-block');
     if (block) {
