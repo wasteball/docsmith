@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Docsmith · 文匠",
   "short_name": "Docsmith",
-  "version": "1.16.3",
+  "version": "1.16.4",
   "description": "以 Markdown 舒适阅读、直接编辑与改动审阅为核心，并提供图文卡片、文件管理、格式转换和分享的一站式文档工具。",
   "icons": {
     "16": "src/icons/icon-16.png",

@@ -756,8 +756,10 @@
     vp.addEventListener('pointerup', endDrag, sigOpt);
     vp.addEventListener('pointercancel', endDrag, sigOpt);
 
+    /* 行内画布只在 Ctrl/⌘ + 滚轮时缩放，让普通滚轮继续滚文档；
+       全屏/灯箱是专用画布，调用方显式传 always 后才直接拦截滚轮。 */
     vp.addEventListener('wheel', function (e) {
-      if (opts.wheelZoom === false && !e.ctrlKey && !e.metaKey) return;
+      if (opts.wheelMode !== 'always' && !e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
       var r = vp.getBoundingClientRect();
       var f = Math.pow(1.0015, -e.deltaY * (e.deltaMode === 1 ? 16 : 1));
@@ -989,7 +991,7 @@
     }
     var tools = target.querySelector('.mm-tools');
     var pz = createPanZoom(vp, stage, {
-      dims: d, tools: tools, setHeight: true, maxH: diagramMaxH, wheelZoom: true,
+      dims: d, tools: tools, setHeight: true, maxH: diagramMaxH, wheelMode: 'modifier',
       /* 图被缩得太小时，双击直接开全屏 —— 见 createPanZoom 里 dblclick 那段 */
       onFull: function () { openChartFull(stage.querySelector('svg'), d); }
     });
@@ -1219,7 +1221,7 @@
     stage.appendChild(clone);
     var tools = overlayBody.querySelector('.mm-tools');
     var pz = createPanZoom(vp, stage, {
-      dims: d, tools: tools, setHeight: false, wheelZoom: true, allowUpscale: true
+      dims: d, tools: tools, setHeight: false, wheelMode: 'always', allowUpscale: true
     });
     bindTools(tools, pz, stage, d);
     if (pz.fit()) pz.flush();
@@ -1262,7 +1264,7 @@
       var d = { w: img.naturalWidth || img.width || 600, h: img.naturalHeight || img.height || 400 };
       img.style.width = d.w + 'px'; img.style.height = d.h + 'px';
       img.style.maxWidth = 'none'; img.style.display = 'block';
-      var pz = createPanZoom(vp, stage, { dims: d, tools: tools, setHeight: false, wheelZoom: true, allowUpscale: true });
+      var pz = createPanZoom(vp, stage, { dims: d, tools: tools, setHeight: false, wheelMode: 'always', allowUpscale: true });
       bindTools(tools, pz, stage, d);
       if (pz.fit()) pz.flush();
       try { vp.focus({ preventScroll: true }); } catch (e) {}
@@ -1850,8 +1852,8 @@
     "function end(e){if(drag!==e.pointerId)return;drag=null;",
     "try{vp.releasePointerCapture(e.pointerId);}catch(x){}vp.classList.remove('grabbing');}",
     "vp.addEventListener('pointerup',end);vp.addEventListener('pointercancel',end);",
-    /* 滚轮缩放。只有指针真的落在画布上才拦，页面其余部分照常滚。 */
-    "vp.addEventListener('wheel',function(e){e.preventDefault();var r=vp.getBoundingClientRect();",
+    /* 导出页也是行内阅读：普通滚轮滚文档，Ctrl/⌘ + 滚轮才缩放图表。 */
+    "vp.addEventListener('wheel',function(e){if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();var r=vp.getBoundingClientRect();",
     "var f=Math.pow(1.0015,-e.deltaY*(e.deltaMode===1?16:1));f=Math.min(1.6,Math.max(1/1.6,f));",
     "zoomAt(f,e.clientX-r.left,e.clientY-r.top);},{passive:false});",
     "vp.addEventListener('dblclick',function(e){if(e.target.closest&&e.target.closest('.mm-tools'))return;",

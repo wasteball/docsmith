@@ -56,9 +56,12 @@ frame.addEventListener('load', () => {
       vp.__pz.flush();const dragged=vp.__pz.state();
       if(Math.abs(dragged.x-enlarged.x)<50||Math.abs(dragged.y-enlarged.y)<25) throw new Error('独立 HTML 拖拽失效');
 
-      vp.dispatchEvent(new exportedWin.WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-160,clientX:rect.left+300,clientY:rect.top+100}));
-      vp.__pz.flush();const wheeled=vp.__pz.state();
-      if(wheeled.scale<=dragged.scale) throw new Error('独立 HTML 滚轮缩放失效');
+      const plainWheel=new exportedWin.WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-160,clientX:rect.left+300,clientY:rect.top+100});
+      const plainPropagated=vp.dispatchEvent(plainWheel);vp.__pz.flush();const afterPlainWheel=vp.__pz.state();
+      if(!plainPropagated||plainWheel.defaultPrevented||afterPlainWheel.scale!==dragged.scale||afterPlainWheel.x!==dragged.x||afterPlainWheel.y!==dragged.y||afterPlainWheel.mode!==dragged.mode) throw new Error('独立 HTML 普通滚轮错误缩放图表');
+      const ctrlWheel=new exportedWin.WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-160,ctrlKey:true,clientX:rect.left+300,clientY:rect.top+100});
+      const ctrlPropagated=vp.dispatchEvent(ctrlWheel);vp.__pz.flush();const wheeled=vp.__pz.state();
+      if(ctrlPropagated||!ctrlWheel.defaultPrevented||wheeled.scale<=dragged.scale) throw new Error('独立 HTML Ctrl + 滚轮缩放失效');
 
       block.querySelector('[data-z="fit"]').click();vp.__pz.flush();const fitted=vp.__pz.state();
       if(Math.abs(fitted.scale-fitted.baseScale)>.0001||Math.abs(fitted.x-fitted.baseX)>.2) throw new Error('独立 HTML 适应画布失效');
@@ -66,7 +69,7 @@ frame.addEventListener('load', () => {
       if(block.dataset.view!=='source') throw new Error('独立 HTML 源码切换失效');
       block.querySelector('.mm-toggle').click();vp.__pz.flush();
       if(block.dataset.view!=='diagram'||Math.abs(vp.__pz.state().scale-vp.__pz.state().baseScale)>.0001) throw new Error('独立 HTML 切回图表未重新适配');
-      return {viewports:exportedViewports.length,zoom:true,drag:true,wheel:true,fit:true,toggle:true};
+      return {viewports:exportedViewports.length,zoom:true,drag:true,plainWheelScroll:true,modifierWheelZoom:true,fit:true,toggle:true};
     } finally { exportedFrame.remove(); }
   }
   function assertOutboundStructure(sequence) {

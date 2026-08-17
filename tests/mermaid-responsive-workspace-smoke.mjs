@@ -123,6 +123,50 @@ frame.addEventListener('load', () => {
     }
   }
 
+  function sameView(a, b) {
+    return ['scale', 'x', 'y', 'baseScale', 'baseX', 'baseY', 'mode'].every((key) => a[key] === b[key]);
+  }
+
+  function wheel(vp, init = {}) {
+    const rect = vp.getBoundingClientRect();
+    const event = new win.WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: -1000,
+      clientX: rect.left + rect.width * 0.7,
+      clientY: rect.top + rect.height / 2,
+      ...init,
+    });
+    const propagated = vp.dispatchEvent(event);
+    vp.__pz.flush();
+    return { propagated, defaultPrevented: event.defaultPrevented, state: vp.__pz.state() };
+  }
+
+  function assertInlineWheelPolicy() {
+    const { vp } = exactDiagram();
+    const before = vp.__pz.state();
+    for (let index = 0; index < 3; index += 1) {
+      const plain = wheel(vp);
+      if (!plain.propagated || plain.defaultPrevented) throw new Error('行内普通滚轮被错误拦截');
+      if (!sameView(before, plain.state)) throw new Error('行内普通滚轮错误改变了图表视角');
+    }
+    assertExactContained('办公电脑普通滚动后精确 LR');
+
+    const ctrl = wheel(vp, { deltaY: -160, ctrlKey: true });
+    if (ctrl.propagated || !ctrl.defaultPrevented || ctrl.state.mode !== 'user-view' || ctrl.state.scale <= before.scale) {
+      throw new Error('行内 Ctrl + 滚轮没有缩放图表');
+    }
+    vp.__pz.fit(); vp.__pz.flush();
+
+    const meta = wheel(vp, { deltaY: -160, metaKey: true });
+    if (meta.propagated || !meta.defaultPrevented || meta.state.mode !== 'user-view' || meta.state.scale <= meta.state.baseScale) {
+      throw new Error('行内 ⌘ + 滚轮没有缩放图表');
+    }
+    vp.__pz.fit(); vp.__pz.flush();
+    assertExactContained('修饰键缩放复位后精确 LR');
+    return { plainScroll: true, ctrlZoom: true, metaZoom: true, containedAfterScroll: true };
+  }
+
   async function resizeFrame(width, height, label) {
     frame.style.width = `${width}px`;
     frame.style.height = `${height}px`;
@@ -163,6 +207,11 @@ frame.addEventListener('load', () => {
     const svg = vp?.querySelector('svg');
     if (!overlay?.classList.contains('open')) throw new Error('全屏画布没有打开');
     const initial = assertViewportContained('全屏初始', vp, svg);
+    const beforeWheel = vp.__pz.state();
+    const plainWheel = wheel(vp, { deltaY: -160 });
+    if (plainWheel.propagated || !plainWheel.defaultPrevented || plainWheel.state.mode !== 'user-view' || plainWheel.state.scale <= beforeWheel.scale) {
+      throw new Error('全屏普通滚轮没有缩放图表');
+    }
     vp.__pz.zoomAt(2); vp.__pz.flush();
     const zoomed = vp.__pz.state();
     if (zoomed.mode !== 'user-view') throw new Error('全屏缩放没有进入 user-view');
@@ -227,7 +276,26 @@ frame.addEventListener('load', () => {
         }
         return state;
       };
-      check('独立 HTML 初始');
+      const exportBefore = check('独立 HTML 初始');
+      const er = evp.getBoundingClientRect();
+      const exportWheel = (init = {}) => {
+        const event = new exported.contentWindow.WheelEvent('wheel', {
+          bubbles: true, cancelable: true, deltaY: -160,
+          clientX: er.left + er.width / 2, clientY: er.top + er.height / 2,
+          ...init,
+        });
+        const propagated = evp.dispatchEvent(event);
+        evp.__pz.flush();
+        return { propagated, defaultPrevented: event.defaultPrevented, state: evp.__pz.state() };
+      };
+      const exportPlain = exportWheel();
+      if (!exportPlain.propagated || exportPlain.defaultPrevented || !sameView(exportBefore, exportPlain.state)) {
+        throw new Error('独立 HTML 普通滚轮错误缩放图表');
+      }
+      const exportCtrl = exportWheel({ ctrlKey: true });
+      if (exportCtrl.propagated || !exportCtrl.defaultPrevented || exportCtrl.state.mode !== 'user-view' || exportCtrl.state.scale <= exportBefore.scale) {
+        throw new Error('独立 HTML Ctrl + 滚轮没有缩放图表');
+      }
       evp.__pz.zoomAt(2); evp.__pz.flush();
       if (evp.__pz.state().mode !== 'user-view') throw new Error('独立 HTML 未进入 user-view');
       exported.style.width = '560px'; exported.style.height = '520px';
@@ -246,6 +314,11 @@ frame.addEventListener('load', () => {
       assertSvgStructure();
       const initial = assertContained('初始');
       assertExactContained('初始精确 LR');
+
+      /* 办公电脑约为 1280×720 CSS px / DPR 1.5。静态 fit 本来就正确；
+         关键是普通页面滚轮绝不能把它悄悄变成被裁剪的 user-view。 */
+      const workComputer = await resizeFrame(1280, 720, '办公电脑 1920x1080@150%');
+      const wheelPolicy = assertInlineWheelPolicy();
 
       const sizes = [];
       sizes.push(await resizeFrame(800, 600, '800x600'));
@@ -301,6 +374,8 @@ frame.addEventListener('load', () => {
         official: true,
         structure: { nodes: 10, boldLabels: 5, rows: 20, rightColumnVisible: true, r5Style: true },
         initial,
+        workComputer,
+        wheelPolicy,
         sizes,
         interactionMigration: true,
         readingWidth: narrowReading,

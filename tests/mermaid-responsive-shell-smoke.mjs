@@ -60,6 +60,25 @@ shell.addEventListener('load', () => {
     return { width: vr.width, height: vr.height, scale: state.scale, mode: state.mode, dpr: state.layout?.dpr, rightColumnVisible: true };
   }
 
+  function assertPlainWheelPassesThrough() {
+    const { vp } = diagram();
+    const before = vp.__pz.state(), rect = vp.getBoundingClientRect();
+    const event = new win.WheelEvent('wheel', {
+      bubbles: true, cancelable: true, deltaY: -1000,
+      clientX: rect.left + rect.width * 0.7,
+      clientY: rect.top + rect.height / 2,
+    });
+    const propagated = vp.dispatchEvent(event);
+    vp.__pz.flush();
+    const after = vp.__pz.state();
+    if (!propagated || event.defaultPrevented ||
+        ['scale', 'x', 'y', 'baseScale', 'baseX', 'baseY', 'mode'].some((key) => after[key] !== before[key])) {
+      throw new Error('真实外壳中的普通滚轮错误改变了图表视角');
+    }
+    assertContained('外壳普通滚动后');
+    return true;
+  }
+
   async function clickCapability(id) {
     const button = shell.contentDocument.querySelector(`.cap[data-id="${id}"]`);
     if (!button) throw new Error(`能力按钮缺失：${id}`);
@@ -74,6 +93,7 @@ shell.addEventListener('load', () => {
       win.MDW.setText(`# 外壳激活回归\n\n\`\`\`mermaid\n${flowchartRoleReadingGuide}\n\`\`\``);
       await win.MDW.whenDiagramsReady({ timeout: 30000, requireSuccess: true });
       const initial = assertContained('外壳初始');
+      const plainWheelScroll = assertPlainWheelPassesThrough();
       const { vp } = diagram();
       vp.__pz.zoomAt(2); vp.__pz.flush();
       if (vp.__pz.state().mode !== 'user-view') throw new Error('外壳中没有建立用户视角');
@@ -90,7 +110,7 @@ shell.addEventListener('load', () => {
       if (!root.classList.contains('active') || root !== doc.querySelector('.frame[data-id="markdown"]')) {
         throw new Error('Markdown 根容器没有重新激活');
       }
-      const result = { ready: true, inlineMount: true, activationMessage: true, initial, activation };
+      const result = { ready: true, inlineMount: true, activationMessage: true, plainWheelScroll, initial, activation };
       window.__responsiveMermaidShellSmoke = result;
       document.body.dataset.rendered = 'true';
       document.title = JSON.stringify(result);
