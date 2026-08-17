@@ -17,6 +17,14 @@ export const flowchartResponsiveDisplay = `flowchart TB
     style Y fill:#e8f4ff,stroke:#39c
     style N fill:#f0f0f0,stroke:#999`;
 
+export const flowchartRoleReadingGuide = `flowchart LR
+    R1["<b>研发</b>"] --> P1["§3 状态机<br/>§5 功能域<br/>§7 数据契约<br/>§8 异常"]
+    R2["<b>测试</b>"] --> P2["§4 门禁<br/>§8 异常矩阵<br/>§10 验收标准<br/>§11 埋点"]
+    R3["<b>算法</b>"] --> P3["§5.3 选址<br/>§5.4 偏移<br/>§7 契约"]
+    R4["<b>业务方</b>"] --> P4["§2 用户任务<br/>§5 功能域<br/>§10 验收"]
+    R5["<b>新任 PM</b>"] --> P5["全文 + 配套学习材料"]
+    style R5 fill:#e8f4ff,stroke:#39c`;
+
 export const sequenceLongMessagesWithNotes = `sequenceDiagram
     participant A as AI
     participant U as 用户

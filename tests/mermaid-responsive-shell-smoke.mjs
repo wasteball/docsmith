@@ -1,4 +1,4 @@
-import { flowchartResponsiveDisplay } from './fixtures/mermaid-cases.mjs';
+import { flowchartRoleReadingGuide } from './fixtures/mermaid-cases.mjs';
 
 const shell = document.querySelector('#shell');
 const shellHtml = await fetch('../src/app/index.html').then((response) => response.text());
@@ -48,7 +48,16 @@ shell.addEventListener('load', () => {
         Math.abs((sr.top + sr.bottom - vr.top - vr.bottom) / 2) > 1.1) {
       throw new Error(`${label}：图表没有居中`);
     }
-    return { width: vr.width, height: vr.height, scale: state.scale, mode: state.mode };
+    const nodes = [...svg.querySelectorAll('.node')];
+    const rightColumn = ['P1', 'P2', 'P3', 'P4', 'P5'].map((id) => nodes.find((node) => node.id.includes(`-flowchart-${id}-`)));
+    if (nodes.length !== 10 || rightColumn.some((node) => !node)) throw new Error(`${label}：精确 LR 图结构不完整`);
+    rightColumn.forEach((node, index) => {
+      const nr = node.getBoundingClientRect();
+      if (nr.left < vr.left - eps || nr.right > vr.right + eps || nr.top < vr.top - eps || nr.bottom > vr.bottom + eps) {
+        throw new Error(`${label}：右列 P${index + 1} 被裁剪`);
+      }
+    });
+    return { width: vr.width, height: vr.height, scale: state.scale, mode: state.mode, dpr: state.layout?.dpr, rightColumnVisible: true };
   }
 
   async function clickCapability(id) {
@@ -62,7 +71,7 @@ shell.addEventListener('load', () => {
     try {
       const doc = shell.contentDocument;
       win.MDW.applyReadingSetting('width', 860);
-      win.MDW.setText(`# 外壳激活回归\n\n\`\`\`mermaid\n${flowchartResponsiveDisplay}\n\`\`\``);
+      win.MDW.setText(`# 外壳激活回归\n\n\`\`\`mermaid\n${flowchartRoleReadingGuide}\n\`\`\``);
       await win.MDW.whenDiagramsReady({ timeout: 30000, requireSuccess: true });
       const initial = assertContained('外壳初始');
       const { vp } = diagram();

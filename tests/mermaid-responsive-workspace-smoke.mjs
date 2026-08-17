@@ -1,9 +1,16 @@
-import { flowchartResponsiveDisplay } from './fixtures/mermaid-cases.mjs';
+import {
+  flowchartResponsiveDisplay,
+  flowchartRoleReadingGuide,
+} from './fixtures/mermaid-cases.mjs';
 
 const source = `# Mermaid 显示器响应式回归
 
 \`\`\`mermaid
 ${flowchartResponsiveDisplay}
+\`\`\`
+
+\`\`\`mermaid
+${flowchartRoleReadingGuide}
 \`\`\``;
 const mount = document.querySelector('#mount');
 const fail = (message) => {
@@ -28,8 +35,8 @@ frame.addEventListener('load', () => {
     setTimeout(ready, 60);
   })();
 
-  function diagram() {
-    const block = doc.querySelector('.diagram-block');
+  function diagram(index = 0) {
+    const block = doc.querySelectorAll('.diagram-block')[index];
     return {
       block,
       vp: block?.querySelector('.mm-viewport'),
@@ -37,6 +44,8 @@ frame.addEventListener('load', () => {
       svg: block?.querySelector('.mm-stage > svg'),
     };
   }
+
+  function exactDiagram() { return diagram(1); }
 
   function approx(a, b, tolerance, message) {
     if (Math.abs(a - b) > tolerance) throw new Error(`${message}：${a} / ${b}`);
@@ -65,27 +74,51 @@ frame.addEventListener('load', () => {
     return { width: vr.width, height: vr.height, scale: state.scale, dpr: state.layout?.dpr };
   }
 
-  function assertContained(label, expectedMode = 'auto-fit') {
-    const { vp, svg } = diagram();
+  function assertContained(label, expectedMode = 'auto-fit', index = 0) {
+    const { vp, svg } = diagram(index);
     return assertViewportContained(label, vp, svg, expectedMode);
   }
 
+  function assertExactContained(label, expectedMode = 'auto-fit') {
+    return assertContained(label, expectedMode, 1);
+  }
+
   function assertSvgStructure() {
-    const { svg } = diagram();
+    const { vp, svg } = exactDiagram();
     if (!svg || svg.classList.contains('dg')) throw new Error('精确样例没有走官方 Mermaid');
     const text = svg.textContent;
-    const expected = ['本产品负责', '本产品不负责', '理解用户意图', '合同与商务', 'IDSS 算法引擎', '专家 / 用户', '调用', '保留人工介入位'];
+    const expected = ['研发', '测试', '算法', '业务方', '新任 PM', '状态机', '异常矩阵', '选址', '用户任务', '配套学习材料'];
     if (!expected.every((value) => text.includes(value))) throw new Error('精确样例关键文本丢失');
-    if (svg.querySelectorAll('.cluster').length !== 2 || svg.querySelectorAll('.node').length !== 11) {
-      throw new Error(`精确样例结构不完整：${svg.querySelectorAll('.cluster').length} clusters / ${svg.querySelectorAll('.node').length} nodes`);
+    const nodes = [...svg.querySelectorAll('.node')];
+    const labels = [...svg.querySelectorAll('.node > .label')];
+    const boldLabels = labels.filter((label) => label.querySelector('tspan[font-weight="700"]'));
+    const rows = [...svg.querySelectorAll('.node > .label tspan.text-outer-tspan.row')];
+    if (nodes.length !== 10 || labels.length !== 10 || boldLabels.length !== 5 || rows.length !== 20) {
+      throw new Error(`精确样例结构不完整：${nodes.length} nodes / ${boldLabels.length} bold / ${rows.length} rows`);
     }
-    const dashed = [...svg.querySelectorAll('.edgePath path,.flowchart-link')].filter((path) => {
-      const style = win.getComputedStyle(path);
-      return (style.strokeDasharray && style.strokeDasharray !== 'none') || path.getAttribute('stroke-dasharray');
+    const findNode = (id) => [...svg.querySelectorAll('.node')].find((node) => node.id.includes(`-flowchart-${id}-`));
+    const rightColumn = ['P1', 'P2', 'P3', 'P4', 'P5'].map(findNode);
+    if (rightColumn.some((node) => !node)) throw new Error('右列 P1–P5 节点缺失');
+    const vr = vp.getBoundingClientRect(), eps = 1.2;
+    rightColumn.forEach((node, index) => {
+      const nr = node.getBoundingClientRect();
+      if (nr.left < vr.left - eps || nr.right > vr.right + eps || nr.top < vr.top - eps || nr.bottom > vr.bottom + eps) {
+        throw new Error(`右列 P${index + 1} 被裁剪`);
+      }
     });
-    if (dashed.length < 2) throw new Error(`精确样例虚线关系丢失：${dashed.length}`);
-    const vb = svg.viewBox.baseVal, bb = svg.getBBox(), eps = 1;
-    if (bb.x < vb.x - eps || bb.y < vb.y - eps || bb.x + bb.width > vb.x + vb.width + eps || bb.y + bb.height > vb.y + vb.height + eps) {
+    const r5 = findNode('R5');
+    const r5Shape = r5?.querySelector('rect,polygon,path');
+    const r5Style = r5Shape && win.getComputedStyle(r5Shape);
+    const color = document.createElement('span');
+    color.style.color = '#e8f4ff';
+    doc.body.append(color);
+    const expectedFill = win.getComputedStyle(color).color;
+    color.remove();
+    if (!r5Style || r5Style.fill !== expectedFill || !r5Style.stroke || r5Style.stroke === 'none') {
+      throw new Error(`R5 作者配色丢失：${r5Style?.fill} / ${r5Style?.stroke}`);
+    }
+    const vb = svg.viewBox.baseVal, bb = svg.getBBox(), bboxEps = 1;
+    if (bb.x < vb.x - bboxEps || bb.y < vb.y - bboxEps || bb.x + bb.width > vb.x + vb.width + bboxEps || bb.y + bb.height > vb.y + vb.height + bboxEps) {
       throw new Error('Mermaid viewBox 没有包住完整绘图 bbox');
     }
   }
@@ -98,7 +131,9 @@ frame.addEventListener('load', () => {
     await win.MDW.refreshDiagramLayout(label);
     await wait(160);
     await win.MDW.refreshDiagramLayout(`${label}-settled`);
-    return assertContained(label);
+    const primary = assertContained(label);
+    assertExactContained(`${label} 精确 LR`);
+    return primary;
   }
 
   async function assertRevealAfterZeroWidth() {
@@ -210,6 +245,7 @@ frame.addEventListener('load', () => {
       await win.MDW.whenDiagramsReady({ timeout: 30000, requireSuccess: true });
       assertSvgStructure();
       const initial = assertContained('初始');
+      assertExactContained('初始精确 LR');
 
       const sizes = [];
       sizes.push(await resizeFrame(800, 600, '800x600'));
@@ -263,7 +299,7 @@ frame.addEventListener('load', () => {
       const result = {
         ready: true,
         official: true,
-        structure: { clusters: 2, nodes: 11, dashedEdges: 2 },
+        structure: { nodes: 10, boldLabels: 5, rows: 20, rightColumnVisible: true, r5Style: true },
         initial,
         sizes,
         interactionMigration: true,
