@@ -164,7 +164,16 @@
 .doc .mm-viewport{position:relative; overflow:hidden; cursor:grab; background:transparent; touch-action:pan-y; outline:none;}
 .doc .mm-viewport:focus-visible{box-shadow:inset 0 0 0 2px var(--doc-accent); border-radius:8px;}
 .doc .mm-viewport.grabbing{cursor:grabbing; touch-action:none;}
-.doc .mm-stage{transform-origin:0 0; will-change:transform;}
+/* will-change:transform 只在真正交互时挂上（.is-interacting，由 createPanZoom 加/摘）。
+
+   常态不挂的原因：它会把画布提成独立合成层，Chrome 先栅格化再按缩放比贴图 ——
+   等于把图重采样一遍。fit() 后的缩放比通常是 0.9079 这类非整数，1px 描边被压到
+   不足一个物理像素，重采样再摊一次，描边就发虚，而且摊在像素网格哪个位置全凭运气：
+   实测同一张图各边墨量峰值在 80~177 之间（DPR=1），深浅差一倍多 —— 这正是
+   「底部线条明显比其他淡」的来源。摘掉之后 Chrome 直接按最终缩放绘制，
+   DPR=2 下各边峰值标准差从 10.7 降到 2.4。 */
+.doc .mm-stage{transform-origin:0 0;}
+.doc .mm-stage.is-interacting{will-change:transform;}
 /* margin:0 —— 画布里的图由 transform 负责居中，SVG 自己不许再居中一次。
    diagrams.css 的 .dg{margin:0 auto} 是给「直接嵌在文章里」的图写的；
    在 .mm-stage 里它会和 fit() 的平移叠加，图就偏右（见 prepSvg 的注释）。

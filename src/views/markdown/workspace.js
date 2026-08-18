@@ -520,12 +520,45 @@
       (fs ? '' : '<button type="button" data-z="full" title="全屏看图" aria-label="全屏看图">' + MM_ICONS.full + '</button>') +
       '</div>';
   }
+  /** 图表的真实边界框，单位是 SVG user space。
+
+      为什么不能只读 viewBox：Mermaid 的 setupViewPortForSVG() 是拿「布局那一刻」
+      的 getBBox() 写 viewBox 的。等 SVG 真正挂进文档，字体落地、CSS 生效（.doc 里
+      换了字体栈、给 .cluster rect 加了圆角），文本度量会变，内容框跟着长出来 ——
+      实测一张中文流程图内容比 viewBox 右侧多 55、下方多 63.6 user unit。
+      而 viewBox 对最外层 <svg> 是硬边界：超出的部分 SVG 自己就不画了，
+      外面 .mm-viewport 的 overflow:hidden 再裁一次。fit() 按 viewBox 算出的
+      容器尺寸看着"刚好装下"，用户看到的却是缺一截 —— 图还被裁，缩放比也不对。
+
+      所以以「真实内容框」为基准，只补一点固定留白，让描边和箭头端点不被切边。
+
+      ⚠ 两个坑都踩过，都别再回去：
+      1) 直接取 viewBox ∪ getBBox 的并集 —— Mermaid 写的 viewBox 本身是偏心的
+         （实测 viewBox.x = -113.7，内容其实从 x=8 开始：左白 121.7、右白 0），
+         并集把偏心继承下来，框左宽右窄，图就偏向一侧。
+      2) 把留白改成"四边取最大值"来强行对称 —— 对称了，但那 121.7 的空白全留着，
+         框比内容大一大圈，fit() 按框算缩放比，图被白白缩小（实测 0.91 → 0.73），
+         而且图仍然居中在一个远比自己宽的框里，看着照样不居中。
+      结论：留白只为防裁剪存在，取一个小的固定值即可；居中和缩放都该按内容算。 */
+  function svgBox(svg) {
+    var vb = svg.viewBox && svg.viewBox.baseVal;
+    var vbBox = (vb && vb.width) ? { x: vb.x, y: vb.y, w: vb.width, h: vb.height } : null;
+    var bb = null;
+    /* getBBox 在未挂载/display:none 的 SVG 上会抛错或给 0，拿不到就只能信 viewBox。 */
+    try { var b = svg.getBBox(); if (b && b.width) bb = { x: b.x, y: b.y, w: b.width, h: b.height }; } catch (e) {}
+    if (!bb) {
+      if (vbBox) return { x: vbBox.x, y: vbBox.y, w: vbBox.w, h: vbBox.h };
+      var r0 = svg.getBoundingClientRect();
+      return { x: 0, y: 0, w: r0.width || 600, h: r0.height || 400 };
+    }
+    /* 2px 只是给描边宽度和抗锯齿留的余量 —— getBBox 已经把描边算进去了，
+       这点富余是防浮点误差把边缘那一列像素切掉。 */
+    var pad = 2;
+    return { x: bb.x - pad, y: bb.y - pad, w: bb.w + pad * 2, h: bb.h + pad * 2 };
+  }
   function svgDims(svg) {
-    var w = 0, h = 0, vb = svg.viewBox && svg.viewBox.baseVal;
-    if (vb && vb.width) { w = vb.width; h = vb.height; }
-    if (!w) { try { var bb = svg.getBBox(); if (bb && bb.width) { w = bb.width; h = bb.height; } } catch (e) {} }
-    if (!w) { var r = svg.getBoundingClientRect(); w = r.width; h = r.height; }
-    return { w: w || 600, h: h || 400 };
+    var box = svgBox(svg);
+    return { w: box.w, h: box.h, x: box.x, y: box.y };
   }
   /** 行内图表的高度上限：跟着窗口走，小屏上不至于占满整屏 */
   function diagramMaxH() {
@@ -548,6 +581,23 @@
     var st = { s: 1, x: 0, y: 0 }, base = { s: 1, x: 0, y: 0 };
     var touched = false, raf = 0, dead = false, ro = null;
 
+    /* 交互期间才把画布提成合成层（.is-interacting → will-change:transform）。
+       常态挂着会让 Chrome 先栅格化再按缩放比贴图，非整数缩放下描边被重采样，
+       线条发虚且深浅不均（见 doc.css 里 .mm-stage 那段）。
+       停手 260ms 后摘掉，让浏览器按最终缩放重新清晰地画一遍。 */
+    var interactTimer = 0;
+    function beginInteract() {
+      if (dead) return;
+      clearTimeout(interactTimer);
+      stage.classList.add('is-interacting');
+    }
+    function endInteract() {
+      clearTimeout(interactTimer);
+      interactTimer = setTimeout(function () {
+        if (!dead) stage.classList.remove('is-interacting');
+      }, 260);
+    }
+
     function paint() { raf = 0; stage.style.transform = 'translate(' + st.x.toFixed(1) + 'px,' + st.y.toFixed(1) + 'px) scale(' + st.s.toFixed(4) + ')'; label(); }
     function apply() { if (!raf && !dead) raf = requestAnimationFrame(paint); }
     function flush() { if (dead) return; if (raf) { cancelAnimationFrame(raf); raf = 0; } paint(); }
@@ -565,12 +615,14 @@
     function zoomAt(f, cx, cy) {
       var ns = clamp(st.s * f);
       if (ns === st.s) return;
+      beginInteract();
       var r = vp.getBoundingClientRect();
       cx = cx == null ? r.width / 2 : cx;
       cy = cy == null ? r.height / 2 : cy;
       st.x = cx - (cx - st.x) * (ns / st.s);
       st.y = cy - (cy - st.y) * (ns / st.s);
       st.s = ns; touched = true; apply();
+      endInteract();
     }
     /** 把整张图放进当前视口。容器高度也在这里定。
 
@@ -629,6 +681,7 @@
       dragId = e.pointerId; px = e.clientX; py = e.clientY;
       try { vp.setPointerCapture(e.pointerId); } catch (err) {}
       vp.classList.add('grabbing');
+      beginInteract();
       e.preventDefault();
     }, sigOpt);
     vp.addEventListener('pointermove', function (e) {
@@ -641,6 +694,7 @@
       dragId = null;
       try { vp.releasePointerCapture(e.pointerId); } catch (err) {}
       vp.classList.remove('grabbing');
+      endInteract();
     }
     vp.addEventListener('pointerup', endDrag, sigOpt);
     vp.addEventListener('pointercancel', endDrag, sigOpt);
@@ -703,6 +757,8 @@
       get scale() { return st.s; },
       destroy: function () {
         if (dead) return; dead = true;
+        clearTimeout(interactTimer);
+        stage.classList.remove('is-interacting');
         if (raf) cancelAnimationFrame(raf);
         if (ro) { try { ro.disconnect(); } catch (e) {} }
         if (ac) { try { ac.abort(); } catch (e) {} }
@@ -805,7 +861,17 @@
      内部靠 auto margin 再偏移一次（实测 858px 视口里 margin-left 给到 218px）。
      两次相加，图就明显偏右 —— 用户原话「渲染图未在画布中间，偏右」。
      居中这件事只能有一个负责人，这里指定给 transform。 */
-  function prepSvg(svg, d) { if (!svg.getAttribute('viewBox')) svg.setAttribute('viewBox', '0 0 ' + d.w + ' ' + d.h); svg.setAttribute('preserveAspectRatio', 'xMidYMid meet'); svg.removeAttribute('width'); svg.removeAttribute('height'); svg.style.maxWidth = 'none'; svg.style.margin = '0'; svg.style.width = d.w + 'px'; svg.style.height = d.h + 'px'; svg.style.display = 'block'; }
+  /* d 由 svgDims() 给出，已经是「viewBox ∪ 实际内容」的并集（见 svgBox 的注释）。
+     这里必须把并集写回 viewBox —— 只改 width/height 是不够的：viewBox 是最外层
+     <svg> 的裁剪边界，不扩它，多出来的那部分内容 SVG 自己就不画。 */
+  function prepSvg(svg, d) {
+    var x = d.x == null ? 0 : d.x, y = d.y == null ? 0 : d.y;
+    svg.setAttribute('viewBox', x + ' ' + y + ' ' + d.w + ' ' + d.h);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.removeAttribute('width'); svg.removeAttribute('height');
+    svg.style.maxWidth = 'none'; svg.style.margin = '0';
+    svg.style.width = d.w + 'px'; svg.style.height = d.h + 'px'; svg.style.display = 'block';
+  }
   function bindTools(tools, pz, stage, d) {
     if (!tools) return;
     tools.addEventListener('click', function (e) {
@@ -1197,7 +1263,9 @@
         clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
         clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
         clone.setAttribute('width', d.w); clone.setAttribute('height', d.h);
-        if (!clone.getAttribute('viewBox')) clone.setAttribute('viewBox', '0 0 ' + d.w + ' ' + d.h);
+        /* 无条件写 viewBox，而不是「没有才补」：d 是 viewBox ∪ 实际内容的并集，
+           原来那个偏小的 viewBox 留在克隆体上，复制出的 PNG 会跟屏幕上一样缺一截。 */
+        clone.setAttribute('viewBox', (d.x || 0) + ' ' + (d.y || 0) + ' ' + d.w + ' ' + d.h);
         clone.style.maxWidth = 'none';
         var xml = new XMLSerializer().serializeToString(clone);
         var scale = pngScale(d.w, d.h);
@@ -1721,7 +1789,19 @@
     "function setup(vp){",
     "var stage=vp.querySelector('.mm-stage'),svg=stage&&stage.querySelector('svg');",
     "if(!svg)return null;",
-    "var vb=svg.viewBox&&svg.viewBox.baseVal,d={w:(vb&&vb.width)||svg.clientWidth||600,h:(vb&&vb.height)||svg.clientHeight||400};",
+    /* 和工作台的 svgBox() 同一件事：viewBox 是 Mermaid 布局那一刻量的，
+       字体一落地内容就可能长出框外，而 viewBox 是最外层 <svg> 的裁剪边界。
+       以真实内容框为基准、只补 2px 防切边后写回 —— 直接取并集会继承 Mermaid
+       viewBox 自带的偏心留白（实测左 121.7 / 右 0），导出件里的图就会偏向一侧。 */
+    "var vb=svg.viewBox&&svg.viewBox.baseVal,vbx=null,bx=null;",
+    "if(vb&&vb.width)vbx={x:vb.x,y:vb.y,w:vb.width,h:vb.height};",
+    "try{var bb=svg.getBBox();if(bb&&bb.width){var pad=2;",
+    "bx={x:bb.x-pad,y:bb.y-pad,w:bb.width+pad*2,h:bb.height+pad*2};}}catch(e){}",
+    "if(!bx&&vbx)bx=vbx;",
+    "if(!bx||!bx.w)bx={x:0,y:0,w:svg.clientWidth||600,h:svg.clientHeight||400};",
+    "var d={w:bx.w,h:bx.h};",
+    "svg.setAttribute('viewBox',bx.x+' '+bx.y+' '+bx.w+' '+bx.h);",
+    "svg.setAttribute('preserveAspectRatio','xMidYMid meet');",
     "svg.removeAttribute('width');svg.removeAttribute('height');",
     "svg.style.maxWidth='none';svg.style.margin='0';svg.style.width=d.w+'px';svg.style.height=d.h+'px';svg.style.display='block';",
     "var st={s:1,x:0,y:0},base={s:1,x:0,y:0},raf=0;",

@@ -481,7 +481,9 @@ input[type=range]{width:100%; accent-color:var(--accent);}
 .overlay-body .mm-viewport{position:relative; overflow:hidden; cursor:grab; touch-action:none; outline:none;}
 .overlay-body .mm-viewport:focus-visible{box-shadow:inset 0 0 0 2px var(--accent);}
 .overlay-body .mm-viewport.grabbing{cursor:grabbing;}
-.overlay-body .mm-stage{transform-origin:0 0; will-change:transform;}
+/* 同 doc.css：常态不挂 will-change，只在交互时挂 —— 否则合成层重采样会让描边发虚。 */
+.overlay-body .mm-stage{transform-origin:0 0;}
+.overlay-body .mm-stage.is-interacting{will-change:transform;}
 /* margin:0 —— 全屏画布同理，居中只由 transform 负责一次。
    见 doc.css 里同一条规则和 prepSvg() 的注释。 */
 .overlay-body .mm-stage svg,.overlay-body .mm-stage img.lightbox-img{display:block; max-width:none; margin:0;}

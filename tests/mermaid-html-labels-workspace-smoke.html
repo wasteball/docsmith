@@ -38,13 +38,22 @@ frame.addEventListener('load', () => {
       if(rows.length!==20) throw new Error('节点换行没有完整保留：'+rows.length);
       if(!bold.length||!bold.every((node)=>Number.parseInt(win.getComputedStyle(node).fontWeight,10)>=600)) throw new Error('节点加粗样式没有生效');
       if(!['研发','测试','算法','业务方','新任 PM'].every((text)=>svg.textContent.includes(text))) throw new Error('节点文本丢失');
+      const nodes=[...svg.querySelectorAll('.node')];
+      const rightColumn=['P1','P2','P3','P4','P5'].map((id)=>nodes.find((node)=>node.id.includes('-flowchart-'+id+'-')));
+      if(nodes.length!==10||rightColumn.some((node)=>!node)) throw new Error('精确 LR 图结构不完整');
+      const vb=svg.viewBox.baseVal,bb=svg.getBBox(),eps=2;
+      if(bb.x<vb.x-eps||bb.y<vb.y-eps||bb.x+bb.width>vb.x+vb.width+eps||bb.y+bb.height>vb.y+vb.height+eps) throw new Error('精确 LR 图内容超出自身 viewBox');
+      const vp=block.querySelector('.mm-viewport'),vr=vp.getBoundingClientRect();
+      rightColumn.forEach((node,index)=>{const r=node.getBoundingClientRect();if(r.left<vr.left-1.2||r.right>vr.right+1.2||r.top<vr.top-1.2||r.bottom>vr.bottom+1.2) throw new Error('右列 P'+(index+1)+' 被画布裁剪');});
+      const r5=nodes.find((node)=>node.id.includes('-flowchart-R5-')),shape=r5&&r5.querySelector('rect,polygon,path'),style=shape&&win.getComputedStyle(shape);
+      if(!style||style.fill!=='rgb(232, 244, 255)'||style.stroke!=='rgb(51, 153, 204)') throw new Error('R5 作者配色丢失：'+(style&&style.fill)+' / '+(style&&style.stroke));
 
       const html=await win.MDW.buildStandaloneHtml();
       const exported=new win.DOMParser().parseFromString(html,'text/html');
       const exportedLabels=[...exported.querySelectorAll('.node > .label')];
       if(exportedLabels.filter((label)=>label.querySelector('tspan[font-weight="700"]')).length!==5||exported.querySelectorAll('.node > .label tspan.text-outer-tspan.row').length!==20) throw new Error('独立 HTML 没有保留节点富文本');
 
-      const result={ready:true,official:win.DocsmithDiagrams.hasOfficialMermaid,labels:labels.length,boldLabels:boldLabels.length,rows:rows.length,standaloneBoldLabels:5};
+      const result={ready:true,official:win.DocsmithDiagrams.hasOfficialMermaid,labels:labels.length,boldLabels:boldLabels.length,rows:rows.length,nodes:nodes.length,rightColumnVisible:true,viewBoxContainsContent:true,r5Style:true,standaloneBoldLabels:5};
       window.__htmlLabelsSmoke=result; document.body.dataset.rendered='true'; document.title=JSON.stringify(result);
     } catch(error) { fail(error.message); }
   }
