@@ -1,18 +1,54 @@
 <!DOCTYPE html>
-<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Docsmith Mermaid HTML labels smoke</title><style>html,body,iframe{width:100%;height:100%;margin:0;border:0}</style></head>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Docsmith Mermaid SVG label formatting smoke</title><style>html,body,iframe{width:100%;height:100%;margin:0;border:0}</style></head>
 <body><div id="mount"></div>
 <script>
-const source = `# Mermaid HTML 标签回归
-
-\`\`\`mermaid
-flowchart LR
+const legacy = `flowchart LR
     R1["<b>研发</b>"] --> P1["§3 状态机<br/>§5 功能域<br/>§7 数据契约<br/>§8 异常"]
     R2["<b>测试</b>"] --> P2["§4 门禁<br/>§8 异常矩阵<br/>§10 验收标准<br/>§11 埋点"]
     R3["<b>算法</b>"] --> P3["§5.3 选址<br/>§5.4 偏移<br/>§7 契约"]
     R4["<b>业务方</b>"] --> P4["§2 用户任务<br/>§5 功能域<br/>§10 验收"]
     R5["<b>新任 PM</b>"] --> P5["全文 + 配套学习材料"]
-    style R5 fill:#e8f4ff,stroke:#39c
+    style R5 fill:#e8f4ff,stroke:#39c`;
+
+const reported = `flowchart LR
+    A["总成功率<br/>71.45% → 68.47%<br/><b>-2.98pt</b>"] --> B["拆成两段看"]
+    B --> C["<b>接通率</b><br/>84.45% → 77.74%<br/>🔴 -6.71pt<br/><i>能不能打通</i>"]
+    B --> D["<b>接通后成功率</b><br/>84.61% → 88.08%<br/>✅ +3.47pt<br/><i>打通后谈得成不成</i>"]
+
+    C --> E["贡献 <b>-5.68pt</b>"]
+    D --> F["贡献 <b>+2.70pt</b>"]
+    E --> G["合计 -2.98pt"]
+    F --> G
+
+    style C fill:#ffcccc
+    style D fill:#ccffcc
+    style E fill:#ffcccc
+    style F fill:#ccffcc`;
+
+const controls = `flowchart TB
+    Q1["<STRONG >粗体</ b > + <EM >斜体</ i >"]
+    Q2["<b><i>粗斜</em></strong> / <em><strong>斜粗</b></i>"]
+    Q3["<i>跨行一<br/>跨行二</em>"]
+    Q4["&lt;b&gt;&lt;i&gt;交叉&lt;/b&gt;&lt;/i&gt;"]
+    Q5["开头 &lt;b&gt;有效&lt;/b&gt; 后面 &lt;i&gt;未闭合"]
+    Q6["孤立 &lt;/strong&gt; 关闭"]
+    Q7["&lt;b class=x&gt;属性&lt;/b&gt; / &lt;i/&gt;自闭合 / &lt;u&gt;未知&lt;/u&gt; / &lt;i不完整"]
+    Q8["\`**原生粗体** 与 *原生斜体*\`"]`;
+
+const source = `# Mermaid SVG 标签回归
+
+\`\`\`mermaid
+${legacy}
+\`\`\`
+
+\`\`\`mermaid
+${reported}
+\`\`\`
+
+\`\`\`mermaid
+${controls}
 \`\`\``;
+
 const mount = document.querySelector('#mount');
 const fail = (message) => { window.__htmlLabelsSmoke={error:String(message)}; document.body.dataset.rendered='error'; document.title=String(message); };
 const frame = document.createElement('iframe'); frame.id='workspace'; frame.src='../src/views/markdown/index.html';
@@ -20,40 +56,108 @@ frame.addEventListener('load', () => {
   const win=frame.contentWindow, doc=frame.contentDocument, started=Date.now();
   (function wait(){
     if(win.MDW&&win.DocsmithDiagrams){ run(); return; }
-    if(Date.now()-started>15000) return fail('工作台没有启动');
+    if(Date.now()-started>20000) return fail('工作台没有启动');
     setTimeout(wait,60);
   })();
+
   async function run(){
     try {
+      if (!win.DocsmithDiagrams.hasOfficialMermaid || win.mermaid?.__docsmith) throw new Error('官方 Mermaid 没有启用');
       win.MDW.setText(source);
-      await win.MDW.whenDiagramsReady({timeout:30000,requireSuccess:true});
-      const block=doc.querySelector('.diagram-block'), svg=block&&block.querySelector('.mm-stage > svg');
-      if(!svg) throw new Error('精确样例没有生成图表');
-      const labels=[...svg.querySelectorAll('.node > .label')];
-      const bold=[...svg.querySelectorAll('.node > .label tspan[font-weight="700"]')];
-      const boldLabels=labels.filter((label)=>label.querySelector('tspan[font-weight="700"]'));
-      const rows=[...svg.querySelectorAll('.node > .label tspan.text-outer-tspan.row')];
-      if(labels.length!==10) throw new Error('节点标签数量错误：'+labels.length);
-      if(boldLabels.length!==5) throw new Error('节点加粗没有完整保留：'+boldLabels.length);
-      if(rows.length!==20) throw new Error('节点换行没有完整保留：'+rows.length);
-      if(!bold.length||!bold.every((node)=>Number.parseInt(win.getComputedStyle(node).fontWeight,10)>=600)) throw new Error('节点加粗样式没有生效');
-      if(!['研发','测试','算法','业务方','新任 PM'].every((text)=>svg.textContent.includes(text))) throw new Error('节点文本丢失');
-      const nodes=[...svg.querySelectorAll('.node')];
-      const rightColumn=['P1','P2','P3','P4','P5'].map((id)=>nodes.find((node)=>node.id.includes('-flowchart-'+id+'-')));
-      if(nodes.length!==10||rightColumn.some((node)=>!node)) throw new Error('精确 LR 图结构不完整');
-      const vb=svg.viewBox.baseVal,bb=svg.getBBox(),eps=2;
-      if(bb.x<vb.x-eps||bb.y<vb.y-eps||bb.x+bb.width>vb.x+vb.width+eps||bb.y+bb.height>vb.y+vb.height+eps) throw new Error('精确 LR 图内容超出自身 viewBox');
-      const vp=block.querySelector('.mm-viewport'),vr=vp.getBoundingClientRect();
-      rightColumn.forEach((node,index)=>{const r=node.getBoundingClientRect();if(r.left<vr.left-1.2||r.right>vr.right+1.2||r.top<vr.top-1.2||r.bottom>vr.bottom+1.2) throw new Error('右列 P'+(index+1)+' 被画布裁剪');});
-      const r5=nodes.find((node)=>node.id.includes('-flowchart-R5-')),shape=r5&&r5.querySelector('rect,polygon,path'),style=shape&&win.getComputedStyle(shape);
-      if(!style||style.fill!=='rgb(232, 244, 255)'||style.stroke!=='rgb(51, 153, 204)') throw new Error('R5 作者配色丢失：'+(style&&style.fill)+' / '+(style&&style.stroke));
+      await win.MDW.whenDiagramsReady({timeout:40000,requireSuccess:true});
+      const blocks=[...doc.querySelectorAll('.diagram-block')];
+      if(blocks.length!==3) throw new Error('期望 3 张图，实际 '+blocks.length);
+      const svgs=blocks.map((block)=>block.querySelector('.mm-stage > svg'));
+      if(svgs.some((svg)=>!svg)) throw new Error('精确样例没有全部生成 SVG');
+      if(svgs.some((svg)=>svg.classList.contains('dg'))) throw new Error('样例走了 fallback renderer');
+      const node=(svg,id)=>[...svg.querySelectorAll('.node')].find((item)=>item.id.includes('-flowchart-'+id+'-'));
+      const spans=(item)=>[...item.querySelectorAll('tspan.text-inner-tspan')];
+      const spanWith=(item,value)=>spans(item).find((span)=>(span.textContent||'').includes(value));
+      const isBold=(span)=>span&&Number.parseInt(win.getComputedStyle(span).fontWeight,10)>=600;
+      const isItalic=(span)=>span&&win.getComputedStyle(span).fontStyle==='italic';
+      const assertLiteral=(item,pieces)=>{
+        const text=item.textContent||'';
+        pieces.forEach((piece)=>{ if(!text.includes(piece)) throw new Error('失败关闭丢失字面标记：'+piece+' / '+text); });
+        if(spans(item).some((span)=>span.getAttribute('font-weight')==='700'||span.getAttribute('font-style')==='italic')) throw new Error('失败关闭标签被部分格式化：'+text);
+      };
+      const containsBBox=(svg)=>{ const vb=svg.viewBox.baseVal,bb=svg.getBBox(),e=2; return bb.x>=vb.x-e&&bb.y>=vb.y-e&&bb.x+bb.width<=vb.x+vb.width+e&&bb.y+bb.height<=vb.y+vb.height+e; };
+
+      const legacySvg=svgs[0], legacyLabels=[...legacySvg.querySelectorAll('.node > .label')];
+      const legacyBold=legacyLabels.filter((label)=>label.querySelector('tspan[font-weight="700"]'));
+      const legacyRows=[...legacySvg.querySelectorAll('.node > .label tspan.text-outer-tspan.row')];
+      if(legacyLabels.length!==10||legacyBold.length!==5||legacyRows.length!==20) throw new Error('既有粗体/换行回归失败');
+      if(!legacyBold.every((label)=>isBold(label.querySelector('tspan[font-weight="700"]')))) throw new Error('既有粗体样式没有生效');
+      const legacyNodes=[...legacySvg.querySelectorAll('.node')];
+      const rightColumn=['P1','P2','P3','P4','P5'].map((id)=>node(legacySvg,id));
+      const vb0=legacySvg.viewBox.baseVal,bb0=legacySvg.getBBox();
+      if(!containsBBox(legacySvg)) throw new Error('既有 LR 图内容超出 viewBox');
+      const vp0=blocks[0].querySelector('.mm-viewport'),vr=vp0.getBoundingClientRect();
+      rightColumn.forEach((item,index)=>{const r=item.getBoundingClientRect();if(r.left<vr.left-1.2||r.right>vr.right+1.2||r.top<vr.top-1.2||r.bottom>vr.bottom+1.2) throw new Error('右列 P'+(index+1)+' 被画布裁剪');});
+      const r5=node(legacySvg,'R5'),r5Shape=r5.querySelector('rect,polygon,path'),r5Style=win.getComputedStyle(r5Shape);
+      if(r5Style.fill!=='rgb(232, 244, 255)'||r5Style.stroke!=='rgb(51, 153, 204)') throw new Error('R5 作者配色丢失');
+
+      const exact=svgs[1];
+      const A=node(exact,'A'),C=node(exact,'C'),D=node(exact,'D'),E=node(exact,'E'),F=node(exact,'F');
+      if(![A,C,D,E,F].every(Boolean)||exact.querySelectorAll('.node').length!==7) throw new Error('用户精确流程图结构不完整');
+      ['-2.98pt','接通率','接通后成功率','-5.68pt','+2.70pt'].forEach((value)=>{
+        const owner=[A,C,D,E,F].find((item)=>(item.textContent||'').includes(value));
+        if(!isBold(spanWith(owner,value))) throw new Error('精确流程图粗体丢失：'+value);
+      });
+      if(!isItalic(spanWith(C,'能不能打通'))||!isItalic(spanWith(D,'打通后谈得成不成'))) throw new Error('用户 <i> 斜体没有恢复');
+      if(/[<>]\/?(?:b|strong|i|em)/i.test(exact.textContent)) throw new Error('有效格式标记仍按字面显示');
+      const expectedFills={C:'rgb(255, 204, 204)',D:'rgb(204, 255, 204)',E:'rgb(255, 204, 204)',F:'rgb(204, 255, 204)'};
+      Object.entries(expectedFills).forEach(([id,fill])=>{const item=node(exact,id),shape=item.querySelector('rect,polygon,path'),style=win.getComputedStyle(shape);if(style.fill!==fill) throw new Error(id+' 作者填充色丢失：'+style.fill);});
+      if(!containsBBox(exact)) throw new Error('斜体恢复后内容超出 viewBox');
+
+      const ctl=svgs[2],q1=node(ctl,'Q1'),q2=node(ctl,'Q2'),q3=node(ctl,'Q3');
+      if(!isBold(spanWith(q1,'粗体'))||!isItalic(spanWith(q1,'斜体'))) throw new Error('大小写/空白/同义标签恢复失败');
+      ['粗斜','斜粗'].forEach((value)=>{const span=spanWith(q2,value);if(!isBold(span)||!isItalic(span)) throw new Error('嵌套粗斜体恢复失败：'+value);});
+      if(!['跨行一','跨行二'].every((value)=>isItalic(spanWith(q3,value)))) throw new Error('跨 <br/> 斜体状态丢失');
+      assertLiteral(node(ctl,'Q4'),['<b>','<i>','</b>','</i>']);
+      assertLiteral(node(ctl,'Q5'),['<b>','</b>','<i>']);
+      assertLiteral(node(ctl,'Q6'),['</strong>']);
+      const q7=node(ctl,'Q7');
+      ['<b class=x>','</b>','<i/>','<u>','</u>','<i不完整'].forEach((piece)=>{if(!(q7.textContent||'').includes(piece)) throw new Error('不支持标记没有保持字面：'+piece);});
+      if(q7.querySelector('b,strong,i,em,u')||q7.querySelector('[class="x"],[onclick]')) throw new Error('用户标记被解释成实际元素/属性');
+      const q8=node(ctl,'Q8'),mdBold=spanWith(q8,'原生粗体'),mdItalic=spanWith(q8,'原生斜体');
+      if(!isBold(mdBold)||!isItalic(mdItalic)) throw new Error('Mermaid Markdown String 原生样式丢失');
+
+      svgs.forEach((svg,index)=>{
+        if(!containsBBox(svg)) throw new Error('第 '+(index+1)+' 张图内容超出 viewBox');
+        if(svg.querySelector('foreignObject,b,strong,i,em')) throw new Error('纯 SVG 安全边界被破坏');
+      });
+      if(win.MDW.getDoc().text!==source) throw new Error('原始 Markdown 被改写');
+      const sourceCodes=[legacy,reported,controls];
+      blocks.forEach((block,index)=>{if(block.querySelector('.diagram-source code').textContent!==sourceCodes[index]) throw new Error('第 '+(index+1)+' 个 Mermaid 源码被改写');});
 
       const html=await win.MDW.buildStandaloneHtml();
       const exported=new win.DOMParser().parseFromString(html,'text/html');
-      const exportedLabels=[...exported.querySelectorAll('.node > .label')];
-      if(exportedLabels.filter((label)=>label.querySelector('tspan[font-weight="700"]')).length!==5||exported.querySelectorAll('.node > .label tspan.text-outer-tspan.row').length!==20) throw new Error('独立 HTML 没有保留节点富文本');
+      const exportedSvgs=[...exported.querySelectorAll('.diagram-block .mm-stage > svg')];
+      if(exportedSvgs.length!==3||exportedSvgs.some((svg)=>svg.querySelector('foreignObject,b,strong,i,em'))) throw new Error('独立 HTML 纯 SVG 结构错误');
+      const exportedExact=exportedSvgs[1],exportedCtl=exportedSvgs[2];
+      const exportedNode=(svg,id)=>[...svg.querySelectorAll('.node')].find((item)=>item.id.includes('-flowchart-'+id+'-'));
+      if(!exportedNode(exportedExact,'C').querySelector('tspan[font-style="italic"]')||!exportedNode(exportedExact,'D').querySelector('tspan[font-style="italic"]')) throw new Error('独立 HTML 没有保留斜体');
+      if(!exportedNode(exportedExact,'A').querySelector('tspan[font-weight="700"]')) throw new Error('独立 HTML 没有保留粗体');
+      if(!(exportedNode(exportedCtl,'Q4').textContent||'').includes('<b>')) throw new Error('独立 HTML 没有保持失败关闭字面文本');
 
-      const result={ready:true,official:win.DocsmithDiagrams.hasOfficialMermaid,labels:labels.length,boldLabels:boldLabels.length,rows:rows.length,nodes:nodes.length,rightColumnVisible:true,viewBoxContainsContent:true,r5Style:true,standaloneBoldLabels:5};
+      const fullButton=blocks[1].querySelector('button[data-z="full"]');
+      fullButton.click();
+      await new Promise((resolve)=>win.requestAnimationFrame(()=>win.requestAnimationFrame(resolve)));
+      const fullSvg=doc.querySelector('.overlay.open .mm-stage > svg'),fullC=fullSvg&&node(fullSvg,'C');
+      if(!fullSvg||!fullC||!isItalic(spanWith(fullC,'能不能打通'))||!isBold(spanWith(node(fullSvg,'A'),'-2.98pt'))) throw new Error('全屏没有继承粗体/斜体格式');
+      if(win.getComputedStyle(fullC.querySelector('rect,polygon,path')).fill!=='rgb(255, 204, 204)') throw new Error('全屏没有继承作者配色');
+      doc.querySelector('.overlay.open .overlay-close')?.click();
+
+      const copy=blocks[1].querySelector('.mm-copy');
+      copy.dispatchEvent(new win.PointerEvent('pointerover',{bubbles:true}));
+      const pngPromise=blocks[1]._pngPromise || (blocks[1]._pngReady && Promise.resolve(blocks[1]._pngReady));
+      if(!pngPromise) throw new Error('PNG 没有开始预热');
+      const png=await Promise.race([pngPromise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('PNG 生成超时')),15000))]);
+      if(!png||!png.blob||png.blob.size<100||!(png.w>0&&png.h>0)) throw new Error('富标签 PNG 无效');
+      const exactVb=exact.viewBox.baseVal;
+      if(Math.abs((png.w/png.h)-(exactVb.width/exactVb.height))>0.03) throw new Error('富标签 PNG 长宽比错误');
+
+      const result={ready:true,official:true,diagrams:3,legacy:{labels:legacyLabels.length,boldLabels:legacyBold.length,rows:legacyRows.length,rightColumnVisible:true},reported:{nodes:7,bold:true,italic:true,colors:true},controls:{synonyms:true,nested:true,crossRow:true,failClosed:true,markdownString:true},security:{foreignObject:false,htmlFormattingElements:false},sourceUnchanged:true,fullscreen:true,standalone:true,png:{w:png.w,h:png.h,size:png.blob.size},viewBoxes:[vb0.width,bb0.width]};
       window.__htmlLabelsSmoke=result; document.body.dataset.rendered='true'; document.title=JSON.stringify(result);
     } catch(error) { fail(error.message); }
   }

@@ -560,6 +560,30 @@
     var box = svgBox(svg);
     return { w: box.w, h: box.h, x: box.x, y: box.y };
   }
+  /* Mermaid 的 Gantt 会默认画「今天」竖线。日期落在任务时间域外时，未钳制的
+     时间比例尺仍会把线外推到原始 viewBox 之外；Mermaid 自己本来会裁掉它，
+     但上面的真实 getBBox 修复会把这条装饰线也算成内容，造成右侧大片空白。
+
+     这里只删能被严格证明为「域外默认装饰」的线：官方 Gantt、精确的 today
+     结构、没有作者内联样式、并且 x1/x2 整体落在 Mermaid 原始 viewBox 之外。
+     显式 todayMarker 样式即使在域外也保留，作者指令优先。 */
+  function removeOutOfRangeDefaultGanttTodayMarker(svg) {
+    if (!svg || svg.classList.contains('dg')) return;
+    var role = (svg.getAttribute('aria-roledescription') || '').trim().toLowerCase();
+    if (role !== 'gantt') return;
+    var vb = svg.viewBox && svg.viewBox.baseVal;
+    if (!vb || !isFinite(vb.x) || !isFinite(vb.y) || !isFinite(vb.width) || !isFinite(vb.height)
+        || vb.width <= 0 || vb.height <= 0) return;
+    var left = vb.x, right = vb.x + vb.width, epsilon = 0.01;
+    Array.prototype.forEach.call(svg.querySelectorAll('g.today > line.today'), function (line) {
+      if (line.hasAttribute('style')) return;
+      var x1 = Number(line.getAttribute('x1')), x2 = Number(line.getAttribute('x2'));
+      if (!isFinite(x1) || !isFinite(x2)) return;
+      var whollyLeft = Math.max(x1, x2) < left - epsilon;
+      var whollyRight = Math.min(x1, x2) > right + epsilon;
+      if (whollyLeft || whollyRight) line.remove();
+    });
+  }
   /** 行内图表的高度上限：跟着窗口走，小屏上不至于占满整屏 */
   function diagramMaxH() {
     var vh = window.innerHeight || 900;
@@ -896,31 +920,85 @@
   }
   /* Keep Mermaid's SVG-only security model while restoring the formatting semantics it
      serializes as escaped label text when htmlLabels is disabled. No HTML is parsed here:
-     supported tags are recognized from text nodes and translated to SVG tspans. */
+     four exact, attribute-free markers are recognized from text and translated to SVG
+     tspan attributes. Validation covers the whole label before any live DOM is changed. */
+  var MERMAID_LABEL_MARKER_RE = /(<\s*\/?\s*(?:b|strong|i|em)\s*>)/gi;
+  function mermaidLabelMarker(token) {
+    var match = /^<\s*(\/?)\s*(b|strong|i|em)\s*>$/i.exec(token);
+    if (!match) return null;
+    var name = match[2].toLowerCase();
+    return { close: !!match[1], type: (name === 'b' || name === 'strong') ? 'strong' : 'em' };
+  }
+  function mermaidLabelTokens(value) {
+    return String(value || '').split(MERMAID_LABEL_MARKER_RE);
+  }
   function restoreMermaidSvgLabelFormatting(svg) {
     if (!svg || svg.classList.contains('dg')) return;
     Array.prototype.forEach.call(svg.querySelectorAll('g.label text'), function (text) {
-      var rows = text.querySelectorAll(':scope > tspan.text-outer-tspan.row');
-      var bold = false;
-      Array.prototype.forEach.call(rows, function (row) {
-        var parts = Array.prototype.slice.call(row.querySelectorAll(':scope > tspan.text-inner-tspan'));
-        if (!parts.length) return;
-        var changed = bold, output = [];
+      var rows = Array.prototype.slice.call(text.querySelectorAll(':scope > tspan.text-outer-tspan.row'));
+      if (!rows.length) return;
+      var rowParts = [], safeStructure = true;
+      rows.forEach(function (row) {
+        var children = Array.prototype.slice.call(row.childNodes);
+        var parts = children.filter(function (child) {
+          return child.nodeType === 1 && child.tagName && child.tagName.toLowerCase() === 'tspan'
+            && child.classList.contains('text-inner-tspan');
+        });
+        if (!parts.length || children.some(function (child) {
+          return child.nodeType !== 1
+            || !child.tagName || child.tagName.toLowerCase() !== 'tspan'
+            || !child.classList.contains('text-inner-tspan');
+        })) safeStructure = false;
+        if (parts.some(function (part) { return part.childNodes.length !== 1 || part.firstChild.nodeType !== 3; })) safeStructure = false;
+        rowParts.push(parts);
+      });
+      if (!safeStructure) return;
+
+      /* Pass one: validate normalized nesting across every tspan and every <br> row. */
+      var stack = [], found = false, valid = true;
+      rowParts.forEach(function (parts) {
+        if (!valid) return;
         parts.forEach(function (part) {
-          var value = part.textContent || '';
-          var tokens = value.split(/(<\/?(?:b|strong)\s*>)/gi);
-          tokens.forEach(function (token) {
-            if (/^<(?:b|strong)\s*>$/i.test(token)) { bold = true; changed = true; return; }
-            if (/^<\/(?:b|strong)\s*>$/i.test(token)) { bold = false; changed = true; return; }
+          if (!valid) return;
+          mermaidLabelTokens(part.textContent).forEach(function (token) {
+            if (!valid) return;
+            var marker = mermaidLabelMarker(token);
+            if (!marker) return;
+            found = true;
+            if (!marker.close) { stack.push(marker.type); return; }
+            if (!stack.length || stack[stack.length - 1] !== marker.type) { valid = false; return; }
+            stack.pop();
+          });
+        });
+      });
+      if (!found || !valid || stack.length) return;
+
+      /* Pass two: build all detached replacements first. cloneNode(false) retains Mermaid's
+         coordinates/classes/native Markdown attributes; only the two safe style attributes
+         are added while their normalized stack entries are active. */
+      stack = [];
+      var outputs = rowParts.map(function (parts) {
+        var output = [];
+        parts.forEach(function (part) {
+          mermaidLabelTokens(part.textContent).forEach(function (token) {
+            var marker = mermaidLabelMarker(token);
+            if (marker) {
+              if (marker.close) stack.pop(); else stack.push(marker.type);
+              return;
+            }
             if (!token) return;
-            var span = part.cloneNode(false); span.textContent = token;
-            if (bold) span.setAttribute('font-weight', '700');
+            var span = part.cloneNode(false);
+            span.textContent = token;
+            if (stack.indexOf('strong') >= 0) span.setAttribute('font-weight', '700');
+            if (stack.indexOf('em') >= 0) span.setAttribute('font-style', 'italic');
             output.push(span);
           });
         });
-        if (!changed) return;
+        return output;
+      });
+      rows.forEach(function (row, index) {
         while (row.firstChild) row.removeChild(row.firstChild);
-        output.forEach(function (span) { row.appendChild(span); });
+        outputs[index].forEach(function (span) { row.appendChild(span); });
       });
     });
   }
@@ -940,6 +1018,9 @@
       + '<div class="mm-stage">' + svgHtml + '</div></div>' + toolsHtml(false);
     var vp = target.querySelector('.mm-viewport'), stage = target.querySelector('.mm-stage'), svg = stage.querySelector('svg');
     if (!svg) return;
+    /* Normalize only proven transient decoration before getBBox makes mounted content
+       authoritative; then restore text styles so bold/italic glyph bounds are measured. */
+    removeOutOfRangeDefaultGanttTodayMarker(svg);
     restoreMermaidSvgLabelFormatting(svg);
     var d = svgDims(svg); prepSvg(svg, d);
     var block = target.closest('.diagram-block');
