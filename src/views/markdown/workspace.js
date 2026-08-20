@@ -937,6 +937,41 @@
   function mermaidLabelTokens(value) {
     return String(value || '').split(MERMAID_LABEL_MARKER_RE);
   }
+  function mermaidColorLuminance(value) {
+    var match = /^rgba?\(\s*(\d+(?:\.\d+)?)\s*[, ]\s*(\d+(?:\.\d+)?)\s*[, ]\s*(\d+(?:\.\d+)?)/i.exec(String(value || ''));
+    if (!match) return null;
+    var linear = function (channel) {
+      var value = Math.max(0, Math.min(255, Number(channel))) / 255;
+      return value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * linear(match[1]) + 0.7152 * linear(match[2]) + 0.0722 * linear(match[3]);
+  }
+  function mermaidContrastRatio(a, b) {
+    var light = Math.max(a, b), dark = Math.min(a, b);
+    return (light + 0.05) / (dark + 0.05);
+  }
+  /* Mermaid applies the dark theme's light label colour even when an author gives a node
+     a pale `style ... fill:`. Preserve the fill, but switch the label to the better of
+     Docsmith's dark/light inks when its contrast falls below WCAG AA. This correction runs
+     on the rendered result, so even an author-supplied low-contrast text colour is repaired. */
+  function ensureMermaidNodeTextContrast(svg) {
+    if (!svg || svg.classList.contains('dg')) return;
+    Array.prototype.forEach.call(svg.querySelectorAll('.node'), function (node) {
+      var shape = node.querySelector(':scope > rect, :scope > polygon, :scope > path, :scope > circle, :scope > ellipse');
+      var label = node.querySelector(':scope > .label');
+      if (!shape || !label) return;
+      var glyph = label.querySelector('tspan.text-inner-tspan, text') || label;
+      var fill = mermaidColorLuminance(getComputedStyle(shape).fill);
+      var textStyle = getComputedStyle(glyph);
+      var text = mermaidColorLuminance(textStyle.fill) ?? mermaidColorLuminance(textStyle.color);
+      if (fill == null || text == null || mermaidContrastRatio(fill, text) >= 4.5) return;
+      var ink = mermaidContrastRatio(fill, 0) >= mermaidContrastRatio(fill, 1) ? '#1b1b1f' : '#ffffff';
+      label.style.color = ink; label.style.fill = ink; label.setAttribute('fill', ink);
+      label.querySelectorAll('text,tspan').forEach(function (part) {
+        part.style.color = ink; part.style.fill = ink; part.setAttribute('fill', ink);
+      });
+    });
+  }
   function restoreMermaidSvgLabelFormatting(svg) {
     if (!svg || svg.classList.contains('dg')) return;
     Array.prototype.forEach.call(svg.querySelectorAll('g.label text'), function (text) {
@@ -1027,6 +1062,7 @@
        authoritative; then restore text styles so bold/italic glyph bounds are measured. */
     removeOutOfRangeDefaultGanttTodayMarker(svg);
     restoreMermaidSvgLabelFormatting(svg);
+    ensureMermaidNodeTextContrast(svg);
     var d = svgDims(svg); prepSvg(svg, d);
     var block = target.closest('.diagram-block');
     if (block) {

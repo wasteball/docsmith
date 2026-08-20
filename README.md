@@ -18,7 +18,7 @@ Markdown 已经成为 AI 时代文档的事实标准 —— 你让 AI 写方案�
 
 [![License: MIT](https://img.shields.io/badge/协议-MIT%20免费-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Chrome](https://img.shields.io/badge/浏览器-Chrome%20%2F%20Edge-blue)
-![Version](https://img.shields.io/badge/当前版本-1.17.0-brightgreen)
+![Version](https://img.shields.io/badge/当前版本-1.17.1-brightgreen)
 
 [核心优势](#核心优势) | [功能](#还有这些) | [安装](#安装五分钟) | [上手](#上手三十秒) | [隐私](#隐私)
 

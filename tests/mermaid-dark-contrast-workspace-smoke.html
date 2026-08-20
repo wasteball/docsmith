@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Docsmith Mermaid dark contrast smoke</title><style>html,body,iframe{width:100%;height:100%;margin:0;border:0}</style></head>
+<body><div id="mount"></div><script>
+const diagram=`flowchart TD
+    P["<b>仓网规划业务的收入上限</b><br/>= 专家人数 × 人均年产能<br/><b>两个因子都很难提高</b>"]
+    P --> B1["<b>瓶颈 1 · 依赖专家</b><br/>从数据清洗到报告输出<br/>全程需要资深专家"]
+    P --> B2["<b>瓶颈 2 · 门槛高</b><br/>算法系统专业但上手成本高<br/>分公司无法独立完成"]
+    P --> B3["<b>瓶颈 3 · 难复用</b><br/>经验停留在个人层面<br/>分析口径不一致"]
+    B1 --> R["<b>产品落点</b><br/>打断「人均产能」与<br/>「人的作业速度」的绑定"]
+    B2 --> R
+    B3 --> R
+    style P fill:#ffe8e8,stroke:#d33,stroke-width:2px
+    style R fill:#e8ffe8,stroke:#3a3,stroke-width:2px`;
+const source=`# 要解决的问题\n\n\`\`\`mermaid\n${diagram}\n\`\`\``;
+const mount=document.querySelector('#mount');
+const fail=(message)=>{window.__darkContrastSmoke={error:String(message)};document.body.dataset.rendered='error';document.title=String(message);};
+const frame=document.createElement('iframe');frame.id='workspace';frame.src='../src/views/markdown/index.html';
+frame.addEventListener('load',()=>{const win=frame.contentWindow,doc=frame.contentDocument,started=Date.now();(function wait(){if(win.MDW&&win.DocsmithDiagrams){run();return}if(Date.now()-started>20000)return fail('工作台没有启动');setTimeout(wait,60)})();
+async function run(){try{
+  if(!win.DocsmithDiagrams.hasOfficialMermaid||win.mermaid?.__docsmith)throw new Error('官方 Mermaid 没有启用');
+  win.MDW.setTheme('dark');win.MDW.setText(source);await win.MDW.whenDiagramsReady({timeout:40000,requireSuccess:true});
+  const svg=doc.querySelector('.diagram-block .mm-stage > svg');if(!svg)throw new Error('精确图没有生成 SVG');
+  const node=(id)=>[...svg.querySelectorAll('.node')].find((item)=>item.id.includes('-flowchart-'+id+'-'));
+  const luminance=(color)=>{const rgb=(color.match(/[\d.]+/g)||[]).slice(0,3).map(Number);if(rgb.length!==3)throw new Error('无法解析颜色：'+color);return rgb.map((value)=>{value/=255;return value<=.04045?value/12.92:Math.pow((value+.055)/1.055,2.4);}).reduce((sum,value,index)=>sum+[.2126,.7152,.0722][index]*value,0)};
+  const contrast=(a,b)=>{a=luminance(a);b=luminance(b);return(Math.max(a,b)+.05)/(Math.min(a,b)+.05)};
+  const results={};['P','B1','B2','B3','R'].forEach((id)=>{const item=node(id),shape=item&&item.querySelector('rect,polygon,path'),glyphs=item&&[...item.querySelectorAll('.label tspan.text-inner-tspan')];if(!item||!shape||!glyphs.length)throw new Error(id+' 节点结构不完整');const fill=win.getComputedStyle(shape).fill,ratios=glyphs.map((glyph)=>{const style=win.getComputedStyle(glyph),ink=style.fill==='none'?style.color:style.fill;return +contrast(fill,ink).toFixed(2)});if(Math.min(...ratios)<4.5)throw new Error(id+' 实际字形对比度不足：'+Math.min(...ratios));results[id]={fill,ink:win.getComputedStyle(glyphs[0]).fill,minContrast:Math.min(...ratios)}});
+  const expected={P:'rgb(255, 232, 232)',R:'rgb(232, 255, 232)'};Object.entries(expected).forEach(([id,fill])=>{if(results[id].fill!==fill)throw new Error(id+' 作者填充色丢失：'+results[id].fill)});
+  window.__darkContrastSmoke={ready:true,theme:'dark',nodes:results};document.body.dataset.rendered='true';document.title=JSON.stringify(window.__darkContrastSmoke);
+}catch(error){fail(error.message)}}});mount.append(frame);
+</script></body></html>

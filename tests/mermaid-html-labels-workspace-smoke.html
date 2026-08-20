@@ -107,9 +107,20 @@ frame.addEventListener('load', () => {
       if(/[<>]\/?(?:b|strong|i|em)/i.test(exact.textContent)) throw new Error('有效格式标记仍按字面显示');
       const expectedFills={C:'rgb(255, 204, 204)',D:'rgb(204, 255, 204)',E:'rgb(255, 204, 204)',F:'rgb(204, 255, 204)'};
       Object.entries(expectedFills).forEach(([id,fill])=>{const item=node(exact,id),shape=item.querySelector('rect,polygon,path'),style=win.getComputedStyle(shape);if(style.fill!==fill) throw new Error(id+' 作者填充色丢失：'+style.fill);});
-      if(!containsBBox(exact)) throw new Error('斜体恢复后内容超出 viewBox');
+      const luminance=(color)=>{const rgb=color.match(/[\d.]+/g).slice(0,3).map(Number).map((value)=>{value/=255;return value<=.04045?value/12.92:Math.pow((value+.055)/1.055,2.4);});return .2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2];};
+      const contrast=(a,b)=>{a=luminance(a);b=luminance(b);return(Math.max(a,b)+.05)/(Math.min(a,b)+.05);};
+      const assertContrast=(svg,ids)=>ids.forEach((id)=>{const item=node(svg,id),shape=item.querySelector('rect,polygon,path'),label=item.querySelector(':scope > .label'),glyphs=[...label.querySelectorAll('tspan.text-inner-tspan')];(glyphs.length?glyphs:[label.querySelector('text')||label]).forEach((glyph)=>{const style=win.getComputedStyle(glyph),ink=style.fill==='none'?style.color:style.fill,ratio=contrast(win.getComputedStyle(shape).fill,ink);if(ratio<4.5) throw new Error(id+' 实际字形对比度不足：'+ratio.toFixed(2)+' / '+ink);});});
+      assertContrast(exact,['C','D','E','F']);
+      win.MDW.setTheme('dark');
+      await win.MDW.whenDiagramsReady({timeout:40000,requireSuccess:true});
+      const darkExact=doc.querySelectorAll('.diagram-block')[1].querySelector('.mm-stage > svg');
+      assertContrast(darkExact,['C','D','E','F']);
+      win.MDW.setTheme('light');
+      await win.MDW.whenDiagramsReady({timeout:40000,requireSuccess:true});
+      const lightSvgs=[...doc.querySelectorAll('.diagram-block')].map((block)=>block.querySelector('.mm-stage > svg'));
+      if(!containsBBox(lightSvgs[1])) throw new Error('斜体恢复后内容超出 viewBox');
 
-      const ctl=svgs[2],q1=node(ctl,'Q1'),q2=node(ctl,'Q2'),q3=node(ctl,'Q3');
+      const ctl=lightSvgs[2],q1=node(ctl,'Q1'),q2=node(ctl,'Q2'),q3=node(ctl,'Q3');
       if(!isBold(spanWith(q1,'粗体'))||!isItalic(spanWith(q1,'斜体'))) throw new Error('大小写/空白/同义标签恢复失败');
       ['粗斜','斜粗'].forEach((value)=>{const span=spanWith(q2,value);if(!isBold(span)||!isItalic(span)) throw new Error('嵌套粗斜体恢复失败：'+value);});
       if(!['跨行一','跨行二'].every((value)=>isItalic(spanWith(q3,value)))) throw new Error('跨 <br/> 斜体状态丢失');
@@ -122,7 +133,7 @@ frame.addEventListener('load', () => {
       const q8=node(ctl,'Q8'),mdBold=spanWith(q8,'原生粗体'),mdItalic=spanWith(q8,'原生斜体');
       if(!isBold(mdBold)||!isItalic(mdItalic)) throw new Error('Mermaid Markdown String 原生样式丢失');
 
-      svgs.forEach((svg,index)=>{
+      lightSvgs.forEach((svg,index)=>{
         if(!containsBBox(svg)) throw new Error('第 '+(index+1)+' 张图内容超出 viewBox');
         if(svg.querySelector('foreignObject,b,strong,i,em')) throw new Error('纯 SVG 安全边界被破坏');
       });
@@ -140,7 +151,7 @@ frame.addEventListener('load', () => {
       if(!exportedNode(exportedExact,'A').querySelector('tspan[font-weight="700"]')) throw new Error('独立 HTML 没有保留粗体');
       if(!(exportedNode(exportedCtl,'Q4').textContent||'').includes('<b>')) throw new Error('独立 HTML 没有保持失败关闭字面文本');
 
-      const fullButton=blocks[1].querySelector('button[data-z="full"]');
+      const fullButton=doc.querySelectorAll('.diagram-block')[1].querySelector('button[data-z="full"]');
       fullButton.click();
       await new Promise((resolve)=>win.requestAnimationFrame(()=>win.requestAnimationFrame(resolve)));
       const fullSvg=doc.querySelector('.overlay.open .mm-stage > svg'),fullC=fullSvg&&node(fullSvg,'C');
@@ -148,16 +159,17 @@ frame.addEventListener('load', () => {
       if(win.getComputedStyle(fullC.querySelector('rect,polygon,path')).fill!=='rgb(255, 204, 204)') throw new Error('全屏没有继承作者配色');
       doc.querySelector('.overlay.open .overlay-close')?.click();
 
-      const copy=blocks[1].querySelector('.mm-copy');
+      const copy=doc.querySelectorAll('.diagram-block')[1].querySelector('.mm-copy');
       copy.dispatchEvent(new win.PointerEvent('pointerover',{bubbles:true}));
-      const pngPromise=blocks[1]._pngPromise || (blocks[1]._pngReady && Promise.resolve(blocks[1]._pngReady));
+      const pngBlock=doc.querySelectorAll('.diagram-block')[1];
+      const pngPromise=pngBlock._pngPromise || (pngBlock._pngReady && Promise.resolve(pngBlock._pngReady));
       if(!pngPromise) throw new Error('PNG 没有开始预热');
       const png=await Promise.race([pngPromise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('PNG 生成超时')),15000))]);
       if(!png||!png.blob||png.blob.size<100||!(png.w>0&&png.h>0)) throw new Error('富标签 PNG 无效');
-      const exactVb=exact.viewBox.baseVal;
+      const exactVb=lightSvgs[1].viewBox.baseVal;
       if(Math.abs((png.w/png.h)-(exactVb.width/exactVb.height))>0.03) throw new Error('富标签 PNG 长宽比错误');
 
-      const result={ready:true,official:true,diagrams:3,legacy:{labels:legacyLabels.length,boldLabels:legacyBold.length,rows:legacyRows.length,rightColumnVisible:true},reported:{nodes:7,bold:true,italic:true,colors:true},controls:{synonyms:true,nested:true,crossRow:true,failClosed:true,markdownString:true},security:{foreignObject:false,htmlFormattingElements:false},sourceUnchanged:true,fullscreen:true,standalone:true,png:{w:png.w,h:png.h,size:png.blob.size},viewBoxes:[vb0.width,bb0.width]};
+      const result={ready:true,official:true,diagrams:3,legacy:{labels:legacyLabels.length,boldLabels:legacyBold.length,rows:legacyRows.length,rightColumnVisible:true},reported:{nodes:7,bold:true,italic:true,colors:true,contrast:true},controls:{synonyms:true,nested:true,crossRow:true,failClosed:true,markdownString:true},security:{foreignObject:false,htmlFormattingElements:false},sourceUnchanged:true,fullscreen:true,standalone:true,png:{w:png.w,h:png.h,size:png.blob.size},viewBoxes:[vb0.width,bb0.width]};
       window.__htmlLabelsSmoke=result; document.body.dataset.rendered='true'; document.title=JSON.stringify(result);
     } catch(error) { fail(error.message); }
   }
