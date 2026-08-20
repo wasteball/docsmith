@@ -1315,3 +1315,20 @@ input[type=range]{width:100%; accent-color:var(--accent);}
 @media (max-width:760px){.src-panes{grid-template-columns:minmax(0,1fr);}
   .src-panes .blk-editor{border-right:none; border-bottom:1px solid var(--doc-border);}
   .src-live{max-height:260px;}}
+
+/* Whole-document PNG capture lives inside the Markdown host so scoped styles and
+   custom CSS resolve exactly as they do in the reader. It stays rendered but far
+   outside the viewport; the adapter removes it in finally on every path. */
+.doc-image-capture{
+  position:fixed !important; left:-100000px !important; top:0 !important;
+  z-index:-1 !important; display:block !important; visibility:visible !important;
+  pointer-events:none !important; overflow:visible !important; contain:none !important;
+}
+.doc-image-capture .doc-image-article{box-sizing:border-box; isolation:isolate;}
+.doc-image-capture .doc-image-page{box-sizing:border-box; overflow:hidden;}
+.doc-image-capture .doc-image-scaled,.doc-image-capture .doc-image-slice{position:relative; overflow:hidden;}
+.doc-image-capture .doc-image-slice>.blk{position:relative;}
+.ex-split.busy{border-color:var(--accent);}
+.ex-split.busy .ex-main-btn{position:relative; padding-left:31px;}
+.ex-split.busy .ex-main-btn::before{content:''; position:absolute; left:11px; top:50%; width:11px; height:11px; margin-top:-7px; border:2px solid color-mix(in srgb,var(--accent) 34%,transparent); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite;}
+.ex-main-btn:disabled,.ex-caret:disabled{cursor:wait; opacity:.72;}

@@ -379,7 +379,12 @@
         var clean = DOMPurify.sanitize(html, { ADD_TAGS: ['details', 'summary'], ADD_ATTR: ['target', 'loading', 'open'], USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true } });
         // never let the sanitizer swallow a whole local document
         if (clean && clean.trim()) html = clean;
-      } catch (e) { /* keep unsanitized local html */ }
+      } catch (e) {
+        /* DOMPurify 失败时不能继续解释原始 HTML。保住全部文字，但关闭 HTML。 */
+        err = err || e;
+        html = '<pre class="raw-fallback">' + escapeHtml(src) + '</pre>';
+        docBlocks = [];
+      }
     }
 
     /* 换内容之前先把上一批图表的监听器 / 观察器收掉。
@@ -2005,24 +2010,49 @@
     "})();"
   ].join('');
   function currentName() { var d = curDoc(); return d ? d.name.replace(/\.(md|markdown|mkd|mdx)$/i, '') : 'document'; }
-  /* exported / copied HTML must not carry the editing scaffolding */
-  function cleanDocHtml() {
+  /* exported / copied HTML must not carry the editing scaffolding. Image capture
+     uses the same cleanup but keeps .blk wrappers so the long-image clone matches live layout. */
+  function cleanDocClone(opts) {
+    opts = opts || {};
     var c = preview.cloneNode(true);
-    c.querySelectorAll('.src-box,.blk-new,.blk-add-end,.doc-blank,.chg-del,.chg-diff').forEach(function (n) { n.remove(); });
+    c.querySelectorAll('.src-box,.blk-new,.blk-add-end,.doc-blank,.chg-del,.chg-diff,.render-error')
+      .forEach(function (n) { n.remove(); });
+    if (opts.image) {
+      c.querySelectorAll('.h-anchor,.copy-btn,.mm-toggle,.mm-copy,.mm-flow-mode,.mm-tools,.cb-actions')
+        .forEach(function (n) { n.remove(); });
+    }
     c.querySelectorAll('[data-chg]').forEach(function (n) { n.removeAttribute('data-chg'); });
-    c.querySelectorAll('.rich').forEach(function (n) { n.classList.remove('rich'); });
-    c.querySelectorAll('.find-match-block,.find-current-block').forEach(function (n) { n.classList.remove('find-match-block', 'find-current-block'); });
+    c.querySelectorAll('.rich,.hot,.editing,.cell-editing,.chg-focus,.find-match-block,.find-current-block')
+      .forEach(function (n) {
+        n.classList.remove('rich', 'hot', 'editing', 'cell-editing', 'chg-focus',
+          'find-match-block', 'find-current-block');
+      });
     c.querySelectorAll('svg.is-tracing').forEach(function (n) { n.classList.remove('is-tracing'); });
     c.querySelectorAll('svg .is-active').forEach(function (n) { n.classList.remove('is-active'); });
     c.querySelectorAll('.mm-relations').forEach(function (n) { n.remove(); });
-    c.querySelectorAll('.blk').forEach(function (b) {
-      var p = b.parentNode; while (b.firstChild) p.insertBefore(b.firstChild, b); p.removeChild(b);
+    if (!opts.keepBlocks) c.querySelectorAll('.blk').forEach(function (b) {
+      var p = b.parentNode;
+      while (b.firstChild) p.insertBefore(b.firstChild, b);
+      p.removeChild(b);
     });
     c.querySelectorAll('[contenteditable]').forEach(function (n) { n.removeAttribute('contenteditable'); });
-    c.querySelectorAll('.cell-editing').forEach(function (n) { n.classList.remove('cell-editing'); });
-    c.querySelectorAll('input[type=checkbox]').forEach(function (n) { n.disabled = true; n.removeAttribute('data-task'); });
-    return c.innerHTML;
+    c.querySelectorAll('input[type=checkbox]').forEach(function (n) {
+      n.disabled = true;
+      n.removeAttribute('data-task');
+    });
+    if (opts.image) {
+      c.querySelectorAll('button,select,textarea,input:not([type=checkbox])')
+        .forEach(function (n) { n.remove(); });
+    }
+    c.querySelectorAll('script,iframe,object,embed').forEach(function (n) { n.remove(); });
+    Array.prototype.forEach.call(c.querySelectorAll('*'), function (n) {
+      Array.prototype.slice.call(n.attributes || []).forEach(function (a) {
+        if (/^on/i.test(a.name) || a.name.toLowerCase() === 'srcdoc') n.removeAttribute(a.name);
+      });
+    });
+    return c;
   }
+  function cleanDocHtml() { return cleanDocClone().innerHTML; }
   /* 「导出 PDF」那条路会往导出的网页里多塞这一句：打开即唤起打印框，
      用户在系统对话框里选「另存为 PDF」。
      等 document.fonts.ready 再打印 —— 不等的话 Chrome 有时会按回退字体的
@@ -2210,7 +2240,9 @@
   function buildStandalone(opts) {
     opts = opts || {};
     var theme = resolvedTheme();
-    var custom = ($('#customCss') || {}).textContent || '';
+    /* 合并外壳中的 #customCss 会带 host 前缀；独立 HTML 没有那个 host，
+       所以导出必须取偏好的原始 CSS，而不是复制运行时已限定的文本。 */
+    var custom = store.get('customCss', '');
     var needKatex = !!preview.querySelector('.katex, .math-block');
     return whenDiagramsReady(preview, { timeout: 10000 }).then(function () { return Promise.all([
       collectExportCss(),
@@ -2323,11 +2355,52 @@
     if (!w) toast('浏览器拦住了新标签页。允许弹出窗口后再试，或先「导出 → 网页」再自己打印。', 'err');
     setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
   }
-  function download(name, content, type) {
-    try { window.dispatchEvent(new CustomEvent('docsmith:export', { detail: { format: (name.split('.').pop() || '').toLowerCase() } })); } catch (e) {}
-    var blob = new Blob([content], { type: type || 'text/plain' });
-    if (IN_SHELL) { try { var id = 's_' + uid(); var to = setTimeout(function () { localSave(blob, name); }, 1500); window._mdrSaves = window._mdrSaves || {}; window._mdrSaves[id] = to; window.parent.postMessage({ ns: BUS_NS, type: 'saveBlob', id: id, name: name, mime: blob.type, blob: blob }, '*'); return; } catch (e) {} }
+  function download(name, content, type, businessFormat) {
+    var blob = content instanceof Blob ? content : new Blob([content], { type: type || 'text/plain' });
+    var record = function () {
+      try {
+        window.dispatchEvent(new CustomEvent('docsmith:export', {
+          detail: { format: businessFormat || (name.split('.').pop() || '').toLowerCase() }
+        }));
+      } catch (e) {}
+    };
+    if (IN_SHELL) {
+      try {
+        /* 合并模式不能再用 postMessage：window.parent === window，外壳能收到，
+           但 meta.source 也是当前 window，回执再 postMessage 会把同一条
+           saveBlob 重新送回外壳，形成下载回声。用共享 bus 就地分派。 */
+        if (window.DSSaveBlob) {
+          return window.DSSaveBlob(blob, name).then(function () {
+            record();
+            return true;
+          }, function () {
+            localSave(blob, name);
+            record();
+            return true;
+          });
+        }
+        if (window.self !== window.top) {
+          var id = 's_' + uid();
+          /* 旧 iframe 宿主会回 saveBlobAck；只在回执时计业务事件。
+             若宿主太旧而没有回执，超时本地保存并在那时记一次。 */
+          var to = setTimeout(function () {
+            delete window._mdrSaveRecords[id];
+            localSave(blob, name);
+            record();
+          }, 1500);
+          window._mdrSaves = window._mdrSaves || {};
+          window._mdrSaveRecords = window._mdrSaveRecords || {};
+          window._mdrSaves[id] = to;
+          window._mdrSaveRecords[id] = record;
+          window.parent.postMessage({ ns: BUS_NS, type: 'saveBlob', id: id,
+            name: name, mime: blob.type, blob: blob }, '*');
+          return Promise.resolve(true);
+        }
+      } catch (e) {}
+    }
     localSave(blob, name);
+    record();
+    return Promise.resolve(true);
   }
   function localSave(blob, name) { var url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(function () { URL.revokeObjectURL(url); }, 1000); }
 
@@ -2350,6 +2423,91 @@
   function wordFileName() {
     var n = (currentName() || 'document').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, '');
     return (n || 'document') + '.docx';
+  }
+  /* ---------- Whole document PNG ------------------------------------ */
+  function documentImageBaseName() {
+    if (window.DocsmithDocumentImage && window.DocsmithDocumentImage.safeBaseName) {
+      return window.DocsmithDocumentImage.safeBaseName(currentName());
+    }
+    return wordFileName().replace(/\.docx$/i, '');
+  }
+  function documentImageBackground() {
+    var value = getComputedStyle(preview).getPropertyValue('--doc-bg').trim();
+    if (!value || value === 'transparent') return resolvedTheme() === 'dark' ? '#14171f' : '#fcfcfb';
+    var probe = document.createElement('span');
+    probe.style.color = value;
+    return probe.style.color || value;
+  }
+  function commitForDocumentImage() {
+    closeBlockEditor(true);
+    endCellEdit(true);
+    if (ROOT.dataset.mode === 'source') setMode('read');
+  }
+  function waitForDocumentFonts() {
+    if (!(document.fonts && document.fonts.ready)) return Promise.resolve();
+    return Promise.race([
+      document.fonts.ready,
+      new Promise(function (resolve) { setTimeout(resolve, 10000); })
+    ]);
+  }
+  function waitForDocumentImages() {
+    var missing = Array.prototype.slice.call(preview.querySelectorAll('.img-missing'));
+    if (missing.length) {
+      return Promise.reject(new Error('有 ' + missing.length + ' 张正文图片无法读取：' +
+        missing.slice(0, 3).map(function (item) {
+          var label = (item.querySelector('small') || item).textContent.trim();
+          return label || '未知地址';
+        }).join('；')));
+    }
+    /* 正文图片通常带 loading="lazy"。离屏或无头环境里它可能永远不启动，
+       在这里等 live <img> 的 load 会把导出卡满 30 秒。真正的捕获副本随后会
+       去掉 loading，由 adapter 读取、校验 MIME、解码并等待排版；这里仅处理
+       renderer 已经明确标成 .img-missing、而副本里不再有 <img> 的失败状态。 */
+    return Promise.resolve();
+  }
+
+  async function buildDocumentImages(options) {
+    options = options || {};
+    if (!currentId) throw new Error('先打开一份文档');
+    if (!(window.DocsmithDocumentImage && window.DocsmithDocumentImage.build)) {
+      throw new Error('文档图片组件没有加载成功，其他导出格式仍可使用');
+    }
+    commitForDocumentImage();
+    await whenDiagramsReady(preview, { timeout: 30000, requireSuccess: true });
+    await Promise.all([waitForDocumentFonts(), waitForDocumentImages()]);
+    var clone = cleanDocClone({ image: true, keepBlocks: true });
+    clone.classList.remove('find-match-block', 'find-current-block');
+    clone.style.setProperty('--doc-measure', settings.width + 'px');
+    clone.style.fontSize = settings.size + 'px';
+    applyFontClass(clone, settings.font);
+    return window.DocsmithDocumentImage.build({
+      root: ROOT,
+      article: clone,
+      width: settings.width,
+      scale: options.scale || 2,
+      background: documentImageBackground(),
+      name: documentImageBaseName(),
+      onProgress: options.onProgress
+    });
+  }
+  var imageExporting = false;
+  async function exportImage() {
+    if (imageExporting) return;
+    imageExporting = true;
+    try {
+      var result = await buildDocumentImages({
+        onProgress: function (p) { if (p && p.message) toast(p.message); }
+      });
+      await download(result.filename, result.blob, 'image/png', 'png');
+      toast('已导出 ' + result.filename, 'ok');
+      return result;
+    } catch (e) {
+      console.error('[document-image] export failed:', e);
+      toast('导出图片失败：' + ((e && e.message) || '未知错误'), 'err');
+      return null;
+    } finally {
+      imageExporting = false;
+    }
   }
   function wordSetBusy(on, label) {
     var b = $('#downloadBtn'); if (!b) return;
@@ -2749,7 +2907,7 @@
       wordSetBusy(true, 'Packaging...');
       var documentFile = new D.Document(wordDocumentOptions(ctx, children));
       var blob = await D.Packer.toBlob(documentFile), name = wordFileName();
-      download(name, blob, WORD_MIME);
+      await download(name, blob, WORD_MIME);
       try { window.dispatchEvent(new CustomEvent('mdword:exported', { detail: { name: name, size: blob.size, warnings: ctx.warnings.length } })); } catch (e) {}
       toast('已导出 ' + name + (ctx.warnings.length ? ' · ' + ctx.warnings.length + ' 个图片/图表改用文字占位' : ''), ctx.warnings.length ? 'err' : 'ok');
     } catch (e) {
@@ -2798,12 +2956,6 @@
       : [Appearance.resolved(), settings.font, settings.size, settings.width, store.get('customCss', ''), text].join('\u0000');
     return ShareCache.key(kind, name, payload);
   }
-  function ossHasUrl(url) {
-    var h = ossReadState().history;
-    if (!Array.isArray(h)) return false;
-    for (var i = 0; i < h.length; i++) if (h[i] && h[i].downUrl === url) return true;
-    return false;
-  }
   /* 复用链接。若文件库那边的记录被清掉了，就补一条指向同一个 URL 的记录 ——
      依旧不重传，OSS 上的对象还在。 */
   function ossReuse(key, hit) {
@@ -2815,6 +2967,7 @@
     }
     return r;
   }
+
 
   /* Share：先让用户选分享哪种文件 —— 网页(.html) 或 Markdown 源文件(.md)，
      两者都取「当前内容」（含最新编辑）。选完再走各自的上传/去重流程。 */
@@ -2833,10 +2986,97 @@
           '<span><span class="sp-t">网页（.html）</span><span class="sp-d">渲染后的完整网页，带主题样式、图表与公式，收到就能直接在浏览器打开。</span></span></button>' +
         '<button class="share-pick" id="pickMd" type="button"><span class="sp-ico">📄</span>' +
           '<span><span class="sp-t">Markdown 源文件（.md）</span><span class="sp-d">纯文本源码，方便对方继续编辑或二次加工。</span></span></button>' +
+        '<button class="share-pick" id="pickImage" type="button"><span class="sp-ico">🖼️</span>' +
+          '<span><span class="sp-t">图片（.png）</span><span class="sp-d">整篇 Markdown 按当前阅读排版生成一张长图。</span></span></button>' +
       '</div>' +
       '<p class="share-tip">分享的是<strong>当前内容</strong>' + (dirty ? '（含尚未保存到本地的最新编辑）' : '（含最新编辑）') + '，上传到文件库后生成可分享链接。</p>';
     var h = $('#pickHtml'); if (h) h.addEventListener('click', function () { shareHtml(false); });
     var m = $('#pickMd'); if (m) m.addEventListener('click', function () { shareMdSource(false); });
+    var image = $('#pickImage'); if (image) image.addEventListener('click', function () { shareImage(false); });
+  }
+  function blobSha256(blob) {
+    return blob.arrayBuffer().then(function (bytes) {
+      return crypto.subtle.digest('SHA-256', bytes);
+    }).then(function (bytes) {
+      return Array.prototype.map.call(new Uint8Array(bytes), function (byte) {
+        return byte.toString(16).padStart(2, '0');
+      }).join('');
+    });
+  }
+  function imageShareText(record) {
+    return ossFormatShare(record.name, record.url);
+  }
+  async function imageCacheKey(result) {
+    var hash = await blobSha256(result.blob);
+    return ShareCache.key('png', documentImageBaseName(), [
+      result.contractVersion, result.scale, result.assetDigest, hash
+    ].join('|'));
+  }
+  async function shareImage(force) {
+    if (!currentId) { toast('先打开一份文档', 'err'); return; }
+    $('#shareModal').classList.add('open');
+    if (ossIncomplete()) { shareNeedConfig(); return; }
+    if (sharing) return;
+    sharing = true;
+    try {
+      var result = await buildDocumentImages({
+        onProgress: function (progress) {
+          if (progress && progress.message) shareStatus(progress.message);
+        }
+      });
+      var key = await imageCacheKey(result);
+      var hit = force ? null : ShareCache.get(key);
+      if (hit && hit.url) {
+        var reused = ossReuse(key, hit);
+        shareImageOk(reused, true);
+        if (reused.autoCopy) copyPlain(imageShareText(reused));
+        return reused;
+      }
+      shareStatus('正在上传整张图片…');
+      var uploaded = await ossUpload(result.blob, result.filename, function (pct) {
+        shareStatus('上传整张图片 · ' + pct + '%');
+      });
+      var record = {
+        url: uploaded.url,
+        id: uploaded.id,
+        name: uploaded.name,
+        size: uploaded.size,
+        autoCopy: ossAutoCopy()
+      };
+      ShareCache.put(key, record);
+      shareImageOk(record, false);
+      if (record.autoCopy) copyPlain(imageShareText(record));
+      return record;
+    } catch (e) {
+      console.error('[document-image] share failed:', e);
+      shareErr(e);
+      return null;
+    } finally {
+      sharing = false;
+    }
+  }
+  function shareImageOk(result, reused) {
+    try { window.dispatchEvent(new CustomEvent('docsmith:share', { detail: { kind: 'png' } })); } catch (e) {}
+    $('#shareBody').innerHTML =
+      (reused ? '<div class="share-ok reused">♻️ 图片没有变化 · 沿用上次的链接</div>'
+              : '<div class="share-ok">✅ 整张图片已存入文件库</div>') +
+      '<div class="share-url-row"><input id="shareUrl" readonly value="' + escapeHtml(result.url) + '">' +
+        '<button class="btn primary" id="shareCopy" type="button">复制分享</button></div>' +
+      '<a class="share-open" href="' + escapeHtml(result.url) + '" target="_blank" rel="noopener">打开链接 ↗</a>' +
+      '<div class="share-actions">' +
+        (reused ? '<button class="btn" id="shareRegen" type="button">重新上传，生成新链接</button>' : '') +
+        '<button class="btn" id="shareGoFiles" type="button">在文件库中查看 →</button></div>' +
+      '<button class="share-back" id="shareBack" type="button">← 换一种格式分享</button>';
+    $('#shareCopy').addEventListener('click', function () {
+      copyPlain(imageShareText(result));
+      this.textContent = '已复制';
+      var button = this;
+      setTimeout(function () { button.textContent = '复制分享'; }, 1400);
+    });
+    var regen = $('#shareRegen');
+    if (regen) regen.addEventListener('click', function () { shareImage(true); });
+    $('#shareGoFiles').addEventListener('click', function () { gotoFiles(result.id); });
+    $('#shareBack').addEventListener('click', function () { renderShareChooser(); });
   }
   function shareHtml(force) {
     if (!currentId) { toast('先打开一份文档', 'err'); return; }
@@ -2987,7 +3227,21 @@
     // 阅读偏好交给 core/prefs.js 统一保管，换台电脑导入配置就能带过去
     try { window.dispatchEvent(new CustomEvent('docsmith:reading-changed', { detail: settings })); } catch (e) {}
   }
-  function applyCustomCss(css) { var el = $('#customCss'); if (el) el.textContent = css || ''; store.set('customCss', css || ''); }
+  function customCssNode() {
+    /* #customCss 在 <head>。合并后它被搬到外壳的 head，而 $() 刻意只查
+       Markdown 容器，所以这里要从 document 找这个唯一的动态样式节点。 */
+    return document.querySelector('style#customCss[data-for="markdown"],style#customCss');
+  }
+  function applyCustomCss(css) {
+    var el = customCssNode();
+    if (el) {
+      var value = css || '';
+      el.textContent = IN_SHELL && window.DSScopeCss
+        ? window.DSScopeCss(value, 'markdown')
+        : value;
+    }
+    store.set('customCss', css || '');
+  }
   function applyAccent(hex) { if (!hex) return; document.documentElement.style.setProperty('--accent', hex); document.documentElement.style.setProperty('--doc-accent', hex); }
   /* 独立打开还是嵌在外壳里，都用同一份外观 */
   var appearSig = '';
@@ -3093,7 +3347,11 @@
       try {
         var c = DOMPurify.sanitize(html, { ADD_TAGS: ['details', 'summary'], ADD_ATTR: ['target', 'loading', 'open'], USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true } });
         if (c && c.trim()) html = c;
-      } catch (e) {}
+      } catch (e) {
+        /* 局部更新也必须失败关闭；不能因为全量渲染安全就让单元格编辑
+           在 sanitizer 抛错时把未经净化的 HTML 塞回正文。 */
+        html = '<pre class="raw-fallback">' + escapeHtml(t.raw) + '</pre>';
+      }
     }
     docBlocks = nb;
     el.innerHTML = html;
@@ -4793,7 +5051,9 @@
       try {
         var c = DOMPurify.sanitize(html, { ADD_TAGS: ['details', 'summary'], ADD_ATTR: ['target', 'loading', 'open'], USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true } });
         if (c && c.trim()) html = c;
-      } catch (e) {}
+      } catch (e) {
+        html = '<pre class="raw-fallback">' + escapeHtml(raw) + '</pre>';
+      }
     }
     return html || '<span class="cd-nil">（空内容）</span>';
   }
@@ -5680,7 +5940,15 @@
   /* ---------- shell messaging ---------------------------------------- */
   window.addEventListener('message', function (e) {
     var d = e.data; if (!d || d.ns !== BUS_NS) return;
-    if (d.type === 'saveBlobAck' && d.id && window._mdrSaves && window._mdrSaves[d.id]) { clearTimeout(window._mdrSaves[d.id]); delete window._mdrSaves[d.id]; }
+    if (d.type === 'saveBlobAck' && d.id && window._mdrSaves && window._mdrSaves[d.id]) {
+      clearTimeout(window._mdrSaves[d.id]);
+      delete window._mdrSaves[d.id];
+      if (window._mdrSaveRecords && window._mdrSaveRecords[d.id]) {
+        var record = window._mdrSaveRecords[d.id];
+        delete window._mdrSaveRecords[d.id];
+        record();
+      }
+    }
     else if (d.type === 'copyImageResult' && d.id && _copyReqs[d.id]) { _copyReqs[d.id](d.ok); }
     else if (d.type === 'appearance') setAppearance({ theme: d.theme, accent: d.accent }, 'shell');
   });
@@ -5730,7 +5998,24 @@
       return d ? { id: d.id, key: stableDocKey(d), name: d.name, relPath: d.relPath || d.name,
         source: d.source, text: d.text == null ? '' : d.text, dirty: !!d.dirty } : null;
     },
-    setText: function (t) { histPush(t); applyText(t); },
+    setText: function (t) {
+      if (!currentId) {
+        var doc = {
+          id: uid(), name: 'document.md', relPath: 'document.md', source: 'memory', dir: '',
+          text: String(t == null ? '' : t), savedText: String(t == null ? '' : t), dirty: false
+        };
+        docs.push(doc);
+        currentId = doc.id;
+        ROOT.classList.remove('empty');
+        updateWorkspaceTitle();
+        renderFileList();
+        histReset(doc.text);
+        applyText(doc.text);
+        return;
+      }
+      histPush(t);
+      applyText(t);
+    },
     getScroller: function () { return previewPane; },
     getPreviewRoot: function () { return preview; },
     isEmpty: function () { return !currentId; },
@@ -5778,16 +6063,19 @@
     /* 导出：四种格式各自的实现，由 export-menu.js 组装成菜单 */
     whenDiagramsReady: function (opts) { return whenDiagramsReady(preview, opts); },
     buildStandaloneHtml: function (opts) { return buildStandalone(opts); },
+    buildDocumentImages: function (opts) { return buildDocumentImages(opts); },
+    exportImage: function () { return exportImage(); },
     exportWord: function () { return exportWord(); },
     exportStandaloneHtml: function () {
       /* 现在要先把几份样式表读回来才能拼出成品，所以是异步的 —— 给句提示，
          别让人以为点空了。 */
       if (!currentId) { toast('先打开一份文档', 'err'); return; }
       toast('正在打包网页…');
-      buildStandalone().then(function (html) {
-        download(currentName() + '.html', html, 'text/html;charset=utf-8');
+      return buildStandalone().then(function (html) {
+        return download(currentName() + '.html', html, 'text/html;charset=utf-8');
       }, function (e) {
         toast('打包网页失败：' + ((e && e.message) || '未知错误'), 'err');
+        return null;
       });
     },
     /* 没有 exportMarkdown —— 打开的原文件就是 .md，导出成 Markdown 等于把

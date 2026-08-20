@@ -1,0 +1,11 @@
+modern-screenshot 4.7.0
+
+Project: https://github.com/qq15725/modern-screenshot
+Package: https://www.npmjs.com/package/modern-screenshot
+Tarball: https://registry.npmjs.org/modern-screenshot/-/modern-screenshot-4.7.0.tgz
+npm integrity: sha512-9YxN+ddPSMMlhylOv25VHzXrl9u67QRxoh7+SEewGtgUw7t6hHTrjptSDJUSne9oG4Xk/h2cwG15nIt4Hc9ujg==
+Bundled file: dist/index.js (browser UMD build)
+Bundled SHA-256: bb36665889124a0b6e15f16045265737449c3bdcf2712cdb08af3cfa01563e2b
+License: MIT (see modern-screenshot.LICENSE.txt)
+
+The runtime is bundled locally for Manifest V3 CSP and offline use. It is not fetched from a CDN at runtime.

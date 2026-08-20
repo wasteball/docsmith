@@ -205,7 +205,7 @@
   <div class="modal" id="shareModal">
     <div class="modal-card">
       <div class="modal-head"><h3>生成分享链接</h3><button class="modal-close" type="button">✕</button></div>
-      <div id="shareBody"></div>
+      <div id="shareBody" aria-live="polite" aria-atomic="true"></div>
     </div>
   </div>
 
@@ -260,6 +260,9 @@
 <script defer src="../shared/prefs.js"></script>
 <script defer src="./share-cache.js"></script>
 <script defer src="./table-diff.js"></script>
+<!-- 整篇文档 PNG：本地运行时离线生成一张长图。 -->
+<script defer src="../../vendor/modern-screenshot.min.js"></script>
+<script defer src="./document-image.js"></script>
 <script defer src="./workspace.js"></script>
 
 <!-- 审阅与偏好记忆。放最后：此时 window.MDW 已经就绪 -->

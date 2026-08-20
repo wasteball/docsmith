@@ -1,4 +1,3 @@
-
 (function (w) {
   var KEY = 'docsmith:share-cache', MAX = 80;
   function read() { try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { return {}; } }
@@ -16,16 +15,27 @@
     return (h1 >>> 0).toString(36) + '-' + (h2 >>> 0).toString(36) + '-' + str.length.toString(36);
   }
 
+
+
   w.ShareCache = {
     key: function (kind, name, payload) { return kind + '|' + name + '|' + hash(payload); },
-    get: function (k) { var e = read()[k]; return (e && e.url) ? e : null; },
-    put: function (k, v) {
+    get: function (k) {
+      var entry = read()[k];
+      return (entry && entry.url) ? entry : null;
+    },
+    put: function (k, value) {
       var o = read();
-      o[k] = { url: v.url, id: v.id, name: v.name, size: v.size, ts: Date.now() };
-      var ks = Object.keys(o);
-      if (ks.length > MAX) {                                  // 淘汰最旧的
-        ks.sort(function (a, b) { return (o[a].ts || 0) - (o[b].ts || 0); })
-          .slice(0, ks.length - MAX).forEach(function (x) { delete o[x]; });
+      o[k] = {
+        url: value.url,
+        id: value.id,
+        name: value.name,
+        size: value.size,
+        ts: Date.now()
+      };
+      var keys = Object.keys(o);
+      if (keys.length > MAX) {                              // 淘汰最旧的
+        keys.sort(function (a, b) { return (o[a].ts || 0) - (o[b].ts || 0); })
+          .slice(0, keys.length - MAX).forEach(function (x) { delete o[x]; });
       }
       save(o);
     },

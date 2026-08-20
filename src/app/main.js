@@ -295,6 +295,10 @@ async function inlineMount(cap, container) {
   doc.querySelectorAll('head style').forEach((s) => {
     const st = document.createElement('style');
     st.dataset.for = cap.id;
+    /* 动态样式（Markdown 的 #customCss）后续要靠 id 找回来并更新。
+       搬进外壳时不能只复制文本，否则设置面板看似保存成功，实际阅读和
+       整篇 PNG 都仍使用空样式。能力各自只有一个命名空间，保留原 id 安全。 */
+    if (s.id) st.id = s.id;
     st.textContent = scopeCss(s.textContent, cap.id);
     document.head.appendChild(st);
   });
@@ -322,6 +326,10 @@ async function inlineMount(cap, container) {
      报到、也靠它找自己的容器。合并后 <html> 是外壳的，那个属性搬不过来
      （三个能力会互相覆盖），所以在容器上留一份，并让 view-boot 优先读它。 */
   container.setAttribute('data-view-id', doc.documentElement.dataset.viewId || cap.id);
+
+  /* 能力脚本启动时就可能写动态 CSS（Markdown 的 reading.customCss）。
+     必须在 workspace.js 执行前公开限定器，不能等全部脚本跑完才补。 */
+  if (!window.DSScopeCss) window.DSScopeCss = scopeCss;
 
   // ③ 脚本：按原顺序逐个重建并等它就位
   /* 告诉即将执行的脚本「你是哪个能力」。view-boot.js 读它来定身份和容器，
@@ -1127,17 +1135,25 @@ on('open-settings', (d) => {
 });
 
 /* 能力页在 iframe 里下载常被浏览器拦，由外壳代劳 */
+function saveBlob(blob, name) {
+  const value = blob instanceof Blob ? blob : new Blob([blob], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(value);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name || 'download';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 20000);
+}
+
+/* 合并能力直接调用这一个受控入口，避免给自身 postMessage 造成回声。 */
+window.DSSaveBlob = (blob, name) => Promise.resolve().then(() => saveBlob(blob, name));
+
 on('saveBlob', (d, meta) => {
   try {
     const blob = d.blob instanceof Blob ? d.blob : new Blob([d.blob], { type: d.mime || 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = d.name || 'download';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 20000);
+    saveBlob(blob, d.name);
     if (meta.source && d.id) meta.source.postMessage({ ns: 'docsmith', type: 'saveBlobAck', id: d.id }, '*');
   } catch (e) {
     toast('下载没能开始，换个格式再试试。');

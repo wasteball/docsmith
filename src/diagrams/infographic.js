@@ -102,11 +102,32 @@ function serialize(svg, source) {
   const clone = svg.cloneNode(true);
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   addValues(clone, source);
-  clone.querySelectorAll('script,style').forEach((node) => node.remove());
+  clone.querySelectorAll('script,style,iframe,object,embed').forEach((node) => node.remove());
   clone.querySelectorAll('*').forEach((node) => {
     Array.from(node.attributes || []).forEach((attr) => {
-      if (/^on/i.test(attr.name)) node.removeAttribute(attr.name);
-      if ((attr.name === 'href' || attr.name === 'xlink:href') && /^https?:/i.test(attr.value)) node.removeAttribute(attr.name);
+      const name = attr.name.toLowerCase();
+      const value = String(attr.value || '').trim();
+      if (/^on/.test(name) || name === 'srcdoc' || name === 'src' || name === 'srcset') {
+        node.removeAttribute(attr.name);
+        return;
+      }
+      if (name === 'style' && /(?:expression\s*\(|-moz-binding|behavior\s*:)/i.test(value)) {
+        node.removeAttribute(attr.name);
+        return;
+      }
+      /* 内置图标只需要 <use href="#本地-symbol">。拒绝其余地址，既避免
+         远程依赖，也不让 javascript:/data:text/html 等可执行 URL 穿过。 */
+      if ((name === 'href' || name === 'xlink:href') && !/^#[^\s]+$/.test(value)) {
+        node.removeAttribute(attr.name);
+        return;
+      }
+      /* clip-path/filter 等本地 SVG 引用可以保留；任何外部 url(...) 都去掉。 */
+      if (/url\(/i.test(value)) {
+        const urls = Array.from(value.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/gi));
+        if (!urls.length || urls.some((match) => !/^#[^\s]+$/.test(match[2]))) {
+          node.removeAttribute(attr.name);
+        }
+      }
     });
   });
   return new XMLSerializer().serializeToString(clone);

@@ -10,7 +10,7 @@
 import * as prefs from '../../core/prefs.js';
 import { has, missingMessage } from '../../core/vendor.js';
 
-/* 三种格式。刻意**没有** Markdown 那一项 —— 打开的原文件本来就是 .md，
+/* 四种格式。刻意**没有** Markdown 那一项 —— 打开的原文件本来就是 .md，
    再「导出成 Markdown」等于把文件另存一遍，用户要的是「变成别的东西」。 */
 const FORMATS = [
   {
@@ -28,6 +28,14 @@ const FORMATS = [
     hint: '真正的 Word 排版，标题、表格、代码块都能继续编辑',
     needs: 'word',
     run: (MDW) => MDW.exportWord(),
+  },
+  {
+    id: 'png',
+    label: '图片',
+    ext: '.png',
+    hint: '整篇 Markdown 按当前排版生成一张 PNG',
+    needs: 'documentImage',
+    run: (MDW) => MDW.exportImage(),
   },
   {
     /* 标签写清楚这是「走打印对话框另存为 PDF」，不假装是一键生成 .pdf。
@@ -97,19 +105,41 @@ export function mountExportMenu(MDW) {
     return FORMATS.find((f) => f.id === id) || FORMATS[0];
   }
 
+  let busy = false;
   function syncMain() {
     const f = current();
-    main.textContent = `导出 ${f.label}`;
+    main.textContent = busy ? (f.id === 'png' ? '正在生成图片…' : `正在导出 ${f.label}…`) : `导出 ${f.label}`;
     main.title = `${f.hint}（点右边的箭头换格式）`;
   }
 
-  function run(f) {
+  async function run(f) {
+    if (busy) return;
     if (f.needs && !has(f.needs)) { alert(missingMessage(f.needs)); return; }
     if (!MDW.hasDoc()) { MDW.toast?.('先打开一份文档'); return; }
-    prefs.set('export.lastFormat', f.id);
-    prefs.tally('export', f.id);
-    f.run(MDW);
+    busy = true;
+    main.disabled = true;
+    caret.disabled = true;
+    wrap.classList.add('busy');
+    wrap.setAttribute('aria-busy', 'true');
     syncMain();
+    try {
+      await Promise.resolve(f.run(MDW));
+      /* 成功的业务格式由 workspace 的 download() 事件记录。PDF 没有文件下载，
+         在打印入口完成后单独记一次；失败路径不污染“上次导出”。 */
+      if (f.id === 'pdf') {
+        prefs.set('export.lastFormat', f.id);
+        prefs.tally('export', f.id);
+      }
+    } catch (error) {
+      console.error('[export-menu] export failed:', error);
+    } finally {
+      busy = false;
+      main.disabled = false;
+      caret.disabled = false;
+      wrap.classList.remove('busy');
+      wrap.setAttribute('aria-busy', 'false');
+      syncMain();
+    }
   }
 
   main.addEventListener('click', () => run(current()));

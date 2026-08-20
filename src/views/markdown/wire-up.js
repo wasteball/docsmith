@@ -350,6 +350,9 @@ function commands(MDW, tb, reviewer) {
       keywords: 'html daochu', when: hasDoc, run: () => MDW.exportStandaloneHtml() },
     { id: 'exp-docx', group: '送出去', icon: '📘', title: '导出 Word',
       keywords: 'docx daochu', when: hasDoc, run: () => MDW.exportWord() },
+    { id: 'exp-png', group: '送出去', icon: '🖼️', title: '导出图片',
+      desc: '整篇 Markdown 按当前排版生成一张 PNG', keywords: 'png tupian daochu',
+      when: hasDoc, run: () => MDW.exportImage() },
     { id: 'exp-pdf', group: '送出去', icon: '📕', title: '导出 PDF',
       keywords: 'pdf daochu', when: hasDoc, run: () => MDW.exportPdf() },
     /* 没有「导出 Markdown」这一项 —— 打开的原文件就是 .md，再导一遍没意义。

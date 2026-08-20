@@ -19,6 +19,8 @@ const FEATURES = {
                note: '缺了它流程图会显示成代码块。' },
   word:      { global: 'docx',         label: '导出 Word',     required: false,
                note: '缺了它就没法导出 .docx，其他导出格式照常。' },
+  documentImage: { global: 'DocsmithDocumentImage', label: '导出图片', required: false,
+               note: '缺了它不能把整篇 Markdown 生成 PNG，其他导出格式照常。' },
   pdf:       { global: 'html2pdf',     label: '文件库 PDF 转换', required: false,
                note: '缺了它，文件库里「下载时顺手转成 PDF」用不了；'
                    + 'Markdown 工作台的「导出 → PDF」不受影响。' },
@@ -55,6 +57,7 @@ const WORKAROUND = {
   math: '公式会显示成原始文本，内容不受影响。',
   diagram: '插件自带的画图器已经接管，流程图照常显示。',
   word: '可以先「导出 → 网页」再用 Word 打开，或者「打印 → 另存为 PDF」。',
+  documentImage: '可以改用「导出 → 网页」或「导出 → PDF」，正文内容不会受影响。',
   pdf: '文件库里的格式转换用不了；把文件下载成 .md，再到 Markdown 工作台用「导出 → PDF」，效果一样。',
   pptx: 'PPT 会按原样下载，不做转换。',
   zip: '批量下载会变成一个一个下，文件本身没区别。',
