@@ -223,6 +223,10 @@
   .main,.content{display:block !important;} .preview-pane{overflow:visible;}
   .doc{--doc-bg:#fff; --doc-fg:#111; --doc-muted:#555; --doc-border:#ccc; --doc-code-bg:#f6f6f6; --doc-code-head:#eee; max-width:none; margin:0; padding:0; font-size:11.5pt;}
   .doc .mm-viewport{overflow:visible !important; height:auto !important;} .doc .mm-stage{transform:none !important;}
+  .doc .diagram-render,.doc .mm-viewport,.doc .mm-stage{
+    width:100% !important; max-width:100% !important;
+  }
+  .doc .mm-stage{display:block !important; overflow:visible !important;}
   .doc .mm-stage svg{width:100% !important; height:auto !important; max-width:100% !important; max-height:245mm !important; object-fit:contain; margin:0 auto !important;}
   .doc .diagram-print-wide{page:wide-diagram; break-before:page; break-after:page;}
   .doc .cb-actions,.doc .copy-btn,.doc .mm-toggle,.doc .mm-copy,.doc .mm-flow-mode,.doc .mm-relations,.doc .h-anchor,.doc .mm-zoom{display:none !important;}

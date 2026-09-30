@@ -1113,6 +1113,8 @@
     }).join('\n');
   }
   var mmRunToken = 0, mmReadyPromise = Promise.resolve({ ready: true, errors: 0, cancelled: false });
+  var mmSettledToken = -1;
+  var mmSettledScope = null;
   function isMermaidSequence(source) {
     return /(?:^|\n)\s*sequenceDiagram\b/i.test(String(source || ''));
   }
@@ -1186,6 +1188,8 @@
     if (window.mermaid && typeof mermaid.initialize === 'function') mermaid.initialize(mermaidConfig(mode, source));
   }
   function renderDiagrams(root) {
+    mmSettledToken = -1;
+    mmSettledScope = null;
     if (!window.DocsmithDiagrams) return Promise.resolve({ ready: true, errors: 0, cancelled: false });
     var scope = root || preview;
     var blocks = scope.querySelectorAll('.diagram-block');
@@ -1273,11 +1277,19 @@
     return Promise.race([wait, timed]).then(function (result) {
       clearTimeout(timer);
       if (result.cancelled) return whenDiagramsReady(root, opts);
+      var scope = root || preview;
+      if (result.token != null && result.token === mmSettledToken && scope === mmSettledScope) {
+        if (opts.requireSuccess && result.errors) throw new Error(result.errors + ' 个图表未能渲染');
+        return result;
+      }
       var fonts = document.fonts && document.fonts.ready ? document.fonts.ready.catch(function () {}) : Promise.resolve();
       return fonts.then(function () {
-        var scope = root || preview;
         return settleDiagramViewports(scope);
       }).then(function () {
+        if (result.token != null) {
+          mmSettledToken = result.token;
+          mmSettledScope = scope;
+        }
         if (opts.requireSuccess && result.errors) throw new Error(result.errors + ' 个图表未能渲染');
         return result;
       });
