@@ -34,3 +34,6 @@ desktop.ini
 
 # 备份包自己不进库（见 scripts/backup.sh，它输出到项目外面）
 *.zip
+
+# 本地隔离 worktree
+.worktrees/
