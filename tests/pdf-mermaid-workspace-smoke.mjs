@@ -32,7 +32,7 @@ async function waitForRuntime(frame) {
 
 (async () => {
   try {
-    const frame = document.querySelector('#mount iframe');
+    const frame = document.querySelector('#workspace');
     if (!frame) throw new Error('找不到 markdown iframe');
 
     const { win, doc } = await waitForRuntime(frame);
@@ -44,7 +44,7 @@ async function waitForRuntime(frame) {
     const blocks = [...doc.querySelectorAll('.diagram-block')];
     const states = blocks.map(block => block.dataset.diagramState || '');
     if (blocks.length !== 8) throw new Error(`Mermaid 图数量应为 8，实际为 ${blocks.length}`);
-    if (blocks.some(block => !block.querySelector('svg'))) throw new Error('存在没有 SVG 的 Mermaid 图');
+    if (blocks.some(block => !block.querySelector('.mm-stage > svg'))) throw new Error('存在没有 SVG 的 Mermaid 图');
     if (states.some(state => state !== 'ready')) throw new Error(`Mermaid 图状态异常: ${states.join(',')}`);
 
     const originalRequestAnimationFrame = win.requestAnimationFrame;

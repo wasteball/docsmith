@@ -266,9 +266,12 @@ try {
   await call('Emulation.setEmulatedMedia', { media: 'print' });
   const layoutEvaluation = await call('Runtime.evaluate', {
     expression: `(() => {
-      const items = [...document.querySelectorAll('.diagram-block')].map((block, index) => {
-        const svg = block.querySelector('svg');
-        const stage = block.matches('.mm-stage') ? block : block.querySelector('.mm-stage');
+      const workspace = document.querySelector('#workspace');
+      const workspaceDocument = workspace?.contentDocument;
+      if (!workspaceDocument) return {ok: false, items: [], error: 'workspace iframe document 不可用'};
+      const items = [...workspaceDocument.querySelectorAll('.diagram-block')].map((block, index) => {
+        const svg = block.querySelector('.mm-stage > svg');
+        const stage = block.querySelector('.mm-stage');
         const svgRect = svg?.getBoundingClientRect();
         const stageRect = stage?.getBoundingClientRect();
         const viewBox = svg?.getAttribute('viewBox')?.trim().split(/\\s+/).map(Number);
