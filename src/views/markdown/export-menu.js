@@ -38,24 +38,11 @@ const FORMATS = [
     run: (MDW) => MDW.exportImage(),
   },
   {
-    /* 标签写清楚这是「走打印对话框另存为 PDF」，不假装是一键生成 .pdf。
-
-       为什么不做真·PDF 生成器：那需要在插件里内置一个 PDF 引擎**外加一款
-       中文字体**（不带字体的话汉字全是方块），体积要多好几 MB，而代码块和
-       表格的分页质量还一定不如浏览器自己的打印引擎。浏览器的「另存为 PDF」
-       本来就是一个成熟的 PDF 导出器，借它的力更划算。
-
-       用户报的问题是「导出保留 PDF，后面的效果是直接点击导出 PDF 直接触发
-       打印啊 —— 移除错了能力」：功能本身是对的，错在**没说实话** ——
-       菜单上写着「PDF / .pdf」，点下去却弹出打印对话框，像是坏了。
-       现在名字和 hint 都直说。
-
-       打印框现在**直接在面板里弹出**，不再先开一个标签页（用户要求简化操作）
-       —— 见 workspace.js 的 printInPlace()。 */
+    /* Use the browser's PDF printer on a standalone document, not the shell. */
     id: 'pdf',
     label: 'PDF',
     ext: '（打印另存为）',
-    hint: '直接弹出打印窗口，在「目标打印机」里选「另存为 PDF」',
+    hint: '打开独立打印页，默认使用文件名；选择「另存为 PDF」，如仍有地址或页码请关闭「页眉和页脚」',
     needs: null,
     run: (MDW) => MDW.exportPdf(),
   },
@@ -123,7 +110,8 @@ export function mountExportMenu(MDW) {
     wrap.setAttribute('aria-busy', 'true');
     syncMain();
     try {
-      await Promise.resolve(f.run(MDW));
+      const result = await Promise.resolve(f.run(MDW));
+      if (result === false) return;
       /* 成功的业务格式由 workspace 的 download() 事件记录。PDF 没有文件下载，
          在打印入口完成后单独记一次；失败路径不污染“上次导出”。 */
       if (f.id === 'pdf') {

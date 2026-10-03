@@ -214,8 +214,13 @@
 .doc .fn-ref a{border:none; font-size:.75em; padding:0 .1em;}
 .doc .footnotes{margin-top:3em; font-size:.9em; color:var(--doc-muted);}
 .doc .footnotes hr{margin-bottom:1em;} .doc .footnotes li{margin:.4em 0;} .doc .fn-back{border:none; margin-left:.3em;}
-@page{size:A4 portrait;margin:12mm;}
-@page wide-diagram{size:A4 landscape;margin:12mm;}
+/* Empty margin boxes suppress Chromium's URL/title/page-number decorations
+   without losing the repeated page margins of a multi-page document. */
+@page{
+  size:A4 portrait;margin:12mm;
+  @top-left{content:"";} @top-center{content:"";} @top-right{content:"";}
+  @bottom-left{content:"";} @bottom-center{content:"";} @bottom-right{content:"";}
+}
 @media print{
   .topbar,.sidebar,.status,.toast,.modal,.overlay,.mm-tools,.editor-pane,.scroll-nav,.blk-handle,.pop-menu,.cell-h,.sel-tools,.link-box,.blk-add-end,.chg-del,.chg-diff,.chg-nav,.chg-panel,.chg-banner{display:none !important;}
   .doc .blk[data-chg]::before{display:none !important;}
@@ -227,8 +232,9 @@
     width:100% !important; max-width:100% !important;
   }
   .doc .mm-stage{display:block !important; overflow:visible !important;}
-  .doc .mm-stage svg{width:min(100%,var(--diagram-print-width,100%),var(--diagram-print-height-width,100%)) !important; height:auto !important; max-width:100% !important; max-height:none !important; object-fit:contain; margin:0 auto !important;}
-  .doc .diagram-print-wide{page:wide-diagram; break-before:page; break-after:page;}
+  /* Match Word's shrink-only diagram bounds: preserve the rendered Mermaid geometry
+     and scale only when the page or the 620x760 Word box cannot contain it. */
+  .doc .mm-stage svg{width:min(100%,620px,var(--diagram-print-width,100%),var(--diagram-print-height-width,100%)) !important; height:auto !important; max-width:100% !important; max-height:none !important; object-fit:contain; margin:0 auto !important;}
   .doc .cb-actions,.doc .copy-btn,.doc .mm-toggle,.doc .mm-copy,.doc .mm-flow-mode,.doc .mm-relations,.doc .h-anchor,.doc .mm-zoom{display:none !important;}
   .doc .code-block,.doc .diagram-block,.doc table,.doc blockquote,.doc .callout,.doc pre{page-break-inside:avoid;}
   .doc .diagram-block[data-view] .diagram-source{display:none !important;}

@@ -1124,35 +1124,40 @@ on('saveBlob', (d, meta) => {
      2) 本页的 chrome.tabs（侧边栏里不保证可用）
      3) window.open（常被当弹窗拦掉）
    三级都失败就说一句人话，指向一条走得通的路。 */
-on('printHtml', async (d, meta) => {
-  const ack = (ok) => {
-    if (meta.source && d.id) meta.source.postMessage({ ns: 'docsmith', type: 'printHtmlAck', id: d.id, ok }, '*');
-  };
+async function openPrintHtml(html) {
   let url = null;
   try {
-    const blob = d.html instanceof Blob ? d.html : new Blob([d.html || ''], { type: 'text/html' });
+    const blob = html instanceof Blob ? html : new Blob([html || ''], { type: 'text/html' });
     url = URL.createObjectURL(blob);
+    // A blob tab inherits extension CSP but cannot load extension scripts as 'self'.
+    const printUrl = new URL('../views/markdown/print.html', import.meta.url);
+    printUrl.searchParams.set('document', url);
 
     let opened = false;
     try {
-      const r = await chrome.runtime.sendMessage({ type: 'docsmith:open-url', url });
+      const r = await chrome.runtime.sendMessage({ type: 'docsmith:open-url', url: printUrl.href });
       opened = !!(r && r.ok);
     } catch (e) { /* 退到下一级 */ }
     if (!opened) {
-      try { await chrome.tabs.create({ url, active: true }); opened = true; } catch (e) { /* 再退 */ }
+      try { await chrome.tabs.create({ url: printUrl.href, active: true }); opened = true; } catch (e) { /* 再退 */ }
     }
     if (!opened) {
-      try { opened = !!window.open(url, '_blank'); } catch (e) {}
+      try { opened = !!window.open(printUrl.href, '_blank'); } catch (e) {}
     }
     if (!opened) toast('浏览器拦住了新标签页。允许弹出窗口后再试，或先「导出 → 网页」再自己打印。');
-    ack(opened);
+    return opened;
   } catch (e) {
     toast('没能打开打印页面，改用「导出 → 网页」再自己打印。');
-    ack(false);
+    return false;
   } finally {
     // 打印预览还要读它，别撤太早
     if (url) setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) {} }, 120000);
   }
+}
+window.DSPrintHtml = openPrintHtml;
+on('printHtml', async (d, meta) => {
+  const ok = await openPrintHtml(d.html);
+  if (meta.source && d.id) meta.source.postMessage({ ns: 'docsmith', type: 'printHtmlAck', id: d.id, ok }, '*');
 });
 
 /* 子框架没焦点时写不了图片剪贴板，顶层文档可以 */

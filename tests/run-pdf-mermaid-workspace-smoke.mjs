@@ -64,11 +64,15 @@ export function serveRepository(fixturePath) {
         }
         const stat = await fs.stat(target);
         if (!stat.isFile()) throw Object.assign(new Error('Not a file'), { code: 'ENOENT' });
-        response.writeHead(200, {
+        const headers = {
           'Cache-Control': 'no-store',
           'Content-Length': stat.size,
           'Content-Type': mime[extname(target).toLowerCase()] || 'application/octet-stream'
-        });
+        };
+        if (pathname === '/src/views/markdown/print.html') {
+          headers['Content-Security-Policy'] = "script-src 'self'; object-src 'self'";
+        }
+        response.writeHead(200, headers);
         createReadStream(target).pipe(response);
       } catch (error) {
         const missing = error?.code === 'ENOENT';
@@ -261,11 +265,6 @@ export async function run() {
       const workspace = document.querySelector('#workspace');
       const doc = workspace?.contentDocument;
       if (!doc) return {ok:false,items:[],error:'workspace iframe document 不可用'};
-      const probe = doc.createElement('div');
-      probe.style.cssText = 'position:absolute;visibility:hidden;width:1mm';
-      doc.body.appendChild(probe);
-      const pxPerMm = probe.getBoundingClientRect().width;
-      probe.remove();
       const items = [...doc.querySelectorAll('.diagram-block')].map((block,index) => {
         const svg = block.querySelector('.mm-stage > svg');
         const stage = block.querySelector('.mm-stage');
@@ -278,7 +277,6 @@ export async function run() {
         const renderedRatio = svgRect?.width > 0 && svgRect?.height > 0 ? svgRect.width / svgRect.height : NaN;
         const ratioDelta = Number.isFinite(renderedRatio) && Number.isFinite(viewBoxRatio)
           ? Math.abs(renderedRatio / viewBoxRatio - 1) : Infinity;
-        const pageHeight = pxPerMm * (block.classList.contains('diagram-print-wide') ? 158 : 245);
         const positive = Boolean(svgRect && stageRect)
           && svgRect.width > 0 && svgRect.height > 0 && stageRect.width > 0 && stageRect.height > 0;
         return {
@@ -289,48 +287,95 @@ export async function run() {
           stageHeight:stageRect?.height ?? null,
           naturalWidth,
           naturalHeight,
-          pageHeight,
           ratioDelta,
           positive,
           widthOk:positive && svgRect.width <= stageRect.width + 1,
+          wordWidthOk:positive && svgRect.width <= 620 + 1,
           ratioOk:ratioDelta <= 0.01,
           naturalOk:positive && svgRect.width <= naturalWidth + 1 && svgRect.height <= naturalHeight + 1,
-          pageHeightOk:positive && svgRect.height <= pageHeight + 1
+          wordHeightOk:positive && svgRect.height <= 760 + 1
         };
       });
-      return {ok:items.length === 8 && items.every(item => item.widthOk && item.ratioOk && item.naturalOk && item.pageHeightOk),items};
+      return {ok:items.length === 8 && items.every(item => item.widthOk && item.wordWidthOk && item.ratioOk && item.naturalOk && item.wordHeightOk),items};
     })()`);
     if (!print?.ok) throw new Error('打印媒体下 Mermaid SVG 尺寸、比例或 shrink-only 校验失败');
 
     await call('Emulation.setEmulatedMedia', { media: 'screen' });
     await call('Page.navigate', { url: `http://127.0.0.1:${serverPort}${workspacePath}?run=${Date.now()}` });
     await waitForWorkspace(call);
-    const nativePrint = await evaluate(call, `(async () => {
+    // Observe the OS-print boundary before the packaged page's script executes.
+    await call('Page.addScriptToEvaluateOnNewDocument', {
+      source: 'window.__printCalls=0;window.print=function(){window.__printCalls++}'
+    });
+    const pdfExport = await evaluate(call, `(async () => {
       const response = await fetch('/fixture.md');
       if (!response.ok) throw new Error('fixture 加载失败: ' + response.status);
       window.MDW.setText(await response.text());
       await window.MDW.whenDiagramsReady({timeout:120000,requireSuccess:true});
       const blocks = [...document.querySelectorAll('.diagram-block')];
-      const wideBefore = blocks.map((block,index) => block.classList.contains('diagram-print-wide') ? index : -1).filter(index => index >= 0);
       const originalPrint = window.print;
+      const originalOpen = window.open;
+      const originalCreateUrl = URL.createObjectURL.bind(URL);
+      const printHtml = [];
       let printCalls = 0;
       window.print = () => { printCalls++; };
-      try { await window.MDW.exportPdf(); } finally { window.print = originalPrint; }
-      const wideAfter = blocks.map((block,index) => block.classList.contains('diagram-print-wide') ? index : -1).filter(index => index >= 0);
+      window.open = () => ({ closed: false });
+      URL.createObjectURL = blob => {
+        if (blob?.type === 'text/html') printHtml.push(blob);
+        return originalCreateUrl(blob);
+      };
+      try { await window.MDW.exportPdf(); } finally {
+        window.print = originalPrint;
+        window.open = originalOpen;
+        URL.createObjectURL = originalCreateUrl;
+      }
       const temporaryRatios = blocks.filter(block => block.style.getPropertyValue('--diagram-print-ratio')).length;
+      const html = printHtml.length ? await printHtml[0].text() : '';
+      const exported = new DOMParser().parseFromString(html, 'text/html');
+      const outputSvgs = [...exported.querySelectorAll('.mm-stage > svg')];
+      const geometryPreserved = outputSvgs.length === 8 && outputSvgs.every((svg,index) =>
+        svg.getAttribute('viewBox') === blocks[index].querySelector('.mm-stage > svg').getAttribute('viewBox'));
+      const frame = document.createElement('iframe');
+      const loaded = new Promise(resolve => frame.addEventListener('load', resolve, {once:true}));
+      const printDocumentUrl = originalCreateUrl(printHtml[0]);
+      frame.src = '/src/views/markdown/print.html?document=' + encodeURIComponent(printDocumentUrl);
+      document.body.appendChild(frame);
+      await loaded;
+      const deadline = Date.now() + 5000;
+      while (!frame.contentWindow.__printCalls && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
+      const cspPrintCalls = frame.contentWindow.__printCalls;
+      const printTitle = frame.contentDocument.title;
+      const printedSvgs = [...frame.contentDocument.querySelectorAll('.mm-stage > svg')];
+      const printedGeometryPreserved = printedSvgs.length === 8 && printedSvgs.every((svg,index) =>
+        svg.getAttribute('viewBox') === outputSvgs[index].getAttribute('viewBox'));
+      frame.remove();
+      URL.revokeObjectURL(printDocumentUrl);
+      const invalidFrame = document.createElement('iframe');
+      const invalidLoaded = new Promise(resolve => invalidFrame.addEventListener('load', resolve, {once:true}));
+      invalidFrame.src = '/src/views/markdown/print.html?document=' + encodeURIComponent('https://example.invalid/document.html');
+      document.body.appendChild(invalidFrame);
+      await invalidLoaded;
+      const invalidSourceRejected = !invalidFrame.contentWindow.__printCalls
+        && invalidFrame.contentDocument.body.textContent.includes('打印文档来源无效');
+      invalidFrame.remove();
       return {
-        ok:blocks.length === 8 && wideBefore.length > 0 && printCalls === 1
-          && JSON.stringify(wideAfter) === JSON.stringify(wideBefore) && temporaryRatios === 0,
+        ok:blocks.length === 8 && printCalls === 0 && geometryPreserved && printedGeometryPreserved && invalidSourceRejected
+          && printHtml.length === 1 && printTitle === 'document' && cspPrintCalls === 1
+          && temporaryRatios === 0,
         diagrams:blocks.length,
-        wideBefore,
-        wideAfter,
         printCalls,
+        printHtmlCount:printHtml.length,
+        printTitle,
+        cspPrintCalls,
+        geometryPreserved,
+        printedGeometryPreserved,
+        invalidSourceRejected,
         temporaryRatios
       };
     })()`, true);
-    if (!nativePrint?.ok) throw new Error('原生 PDF 打印清理破坏了 Mermaid 横向分类或未调用一次 print');
+    if (!pdfExport?.ok) throw new Error('PDF 独立页没有保留标题、SVG 或未在严格 CSP 下自动打印');
 
-    report = { ...state.result, print, nativePrint };
+    report = { ...state.result, print, pdfExport };
   } catch (error) {
     failure = error;
     report = {

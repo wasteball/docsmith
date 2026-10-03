@@ -41,14 +41,6 @@
     function nextPaint(target) {
       return new Promise(resolve => target.requestAnimationFrame(() => target.requestAnimationFrame(resolve)));
     }
-    function mmToPx(doc, value) {
-      const probe = doc.createElement('div');
-      probe.style.cssText = `position:absolute;visibility:hidden;width:${value}mm`;
-      doc.body.appendChild(probe);
-      const width = probe.getBoundingClientRect().width;
-      probe.remove();
-      return width;
-    }
     function measure(doc, label) {
       const blocks = [...doc.querySelectorAll('.diagram-block')];
       if (blocks.length !== CASES.length) throw new Error(`${label} 图表数量错误: ${blocks.length}`);
@@ -64,37 +56,33 @@
           natural: [viewBox[2], viewBox[3]],
           rendered: [svgRect.width, svgRect.height],
           stageWidth: stageRect.width,
-          wide: block.classList.contains('diagram-print-wide'),
           ratioDelta: Math.abs((svgRect.width / svgRect.height) / (viewBox[2] / viewBox[3]) - 1)
         };
       });
     }
     function assertGeometry(doc, label) {
       const items = measure(doc, label);
-      const portraitHeight = mmToPx(doc, 245);
-      const landscapeHeight = mmToPx(doc, 158);
       const [small, tall, wide] = items;
       const near = (actual, expected) => Math.abs(actual - expected) <= 1.5;
 
       if (!near(small.rendered[0], small.natural[0]) || !near(small.rendered[1], small.natural[1])) {
         throw new Error(`${label} 小型竖图被放大或变形`);
       }
-      if (!near(tall.rendered[1], portraitHeight)) {
-        throw new Error(`${label} 超高图没有同时受 245mm 页高约束: ${tall.rendered[1]}`);
-      }
-      if (!wide.wide || !near(wide.rendered[1], landscapeHeight)) {
-        throw new Error(`${label} 横向图没有同时受 158mm 横向页高约束: ${wide.rendered[1]}`);
+      if (!near(tall.rendered[1], 760) || !near(wide.rendered[0], 620)) {
+        throw new Error(`${label} 大图没有按 Word 尺寸等比例缩放`);
       }
       items.forEach(item => {
         if (item.rendered[0] > item.natural[0] + 1 || item.rendered[1] > item.natural[1] + 1) {
           throw new Error(`${label} ${item.id} 超过固有尺寸`);
         }
-        if (item.rendered[0] > item.stageWidth + 1) throw new Error(`${label} ${item.id} 超出容器宽度`);
+        if (item.rendered[0] > Math.min(item.stageWidth, 620) + 1 || item.rendered[1] > 760 + 1) {
+          throw new Error(`${label} ${item.id} 超出 Word 同款 620x760 尺寸框`);
+        }
         if (!Number.isFinite(item.ratioDelta) || item.ratioDelta > 0.01) {
           throw new Error(`${label} ${item.id} 宽高比失真: ${item.ratioDelta}`);
         }
       });
-      return { portraitHeight, landscapeHeight, items };
+      return { wordWidth: 620, wordHeight: 760, items };
     }
 
     (async () => {

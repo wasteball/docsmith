@@ -18,7 +18,7 @@ Markdown 已经成为 AI 时代文档的事实标准 —— 你让 AI 写方案�
 
 [![License: MIT](https://img.shields.io/badge/协议-MIT%20免费-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Chrome](https://img.shields.io/badge/浏览器-Chrome%20%2F%20Edge-blue)
-![Version](https://img.shields.io/badge/当前版本-2.0.0-brightgreen)
+![Version](https://img.shields.io/badge/当前版本-2.0.1-brightgreen)
 
 [核心优势](#核心优势) | [功能](#还有这些) | [安装](#安装五分钟) | [上手](#上手三十秒) | [隐私](#隐私)
 
@@ -47,7 +47,7 @@ Markdown 已经成为 AI 时代文档的事实标准 —— 你让 AI 写方案�
 | 给谁 | 选什么 | 说明 |
 |---|---|---|
 | 要能继续改的 | **Word** | 真 Word 排版，标题表格代码块都能接着编辑 |
-| 要定稿归档的 | **PDF** | 弹出打印窗口，选「另存为 PDF」 |
+| 要定稿归档的 | **PDF** | 打开独立打印页，默认沿用文件名，选「另存为 PDF」 |
 | 要发人看一眼的 | **网页** | 一个 `.html`，样式图表公式全打包，双击就开 |
 | 要直接当图片发的 | **图片** | 按当前阅读排版把整篇 Markdown 生成一张 2× PNG 长图 |
 
@@ -117,8 +117,9 @@ Windows 用 `Ctrl`，Mac 用 `⌘`；设置里的「快捷键」会按你的系�
 
 ## 走到哪儿了
 
-当前 **2.0.0**，完整记录见 [改动记录](docs/CHANGELOG.md)（不光写改了什么，还写**为什么不走另一条路**）。
+当前 **2.0.1**，完整记录见 [改动记录](docs/CHANGELOG.md)（不光写改了什么，还写**为什么不走另一条路**）。
 
+- **2.0.1** PDF 改用独立打印页，沿用文件名；Mermaid 不再自动切横向页，隐藏打印地址和页码
 - **2.0** 移除独立图文卡片；Markdown 整篇 PNG 保留
 - **1.17.2** 重复打印复用已稳定的图表版式；Mermaid 按自然尺寸只缩不放，并同时受纸面宽高限制
 - **1.6–1.8** 卡片逐页精编、参数记忆、格式按钮、拖拽排序；界面字体返修

@@ -900,12 +900,10 @@
     svg.removeAttribute('width'); svg.removeAttribute('height');
     svg.style.maxWidth = 'none'; svg.style.margin = '0';
     svg.style.width = d.w + 'px'; svg.style.height = d.h + 'px'; svg.style.display = 'block';
-    var ratio = d.w / Math.max(1, d.h), wide = ratio >= 1.45;
+    var ratio = d.w / Math.max(1, d.h);
     svg.style.setProperty('--diagram-print-width', d.w + 'px');
-    /* A4 page height - 24mm page margins - the same 28mm wrapper reserve. */
-    svg.style.setProperty('--diagram-print-height-width', (ratio * (wide ? 158 : 245)) + 'mm');
-    var block = svg.closest('.diagram-block');
-    if (block) block.classList.toggle('diagram-print-wide', wide);
+    /* Keep PDF diagrams on the same shrink-only 620x760 box used by Word. */
+    svg.style.setProperty('--diagram-print-height-width', (ratio * 760) + 'px');
   }
   function bindTools(tools, pz, stage, d) {
     if (!tools) return;
@@ -1952,13 +1950,12 @@
     "bx={x:bb.x-pad,y:bb.y-pad,w:bb.width+pad*2,h:bb.height+pad*2};}}catch(e){}",
     "if(!bx&&vbx)bx=vbx;",
     "if(!bx||!bx.w)bx={x:0,y:0,w:svg.clientWidth||600,h:svg.clientHeight||400};",
-    "var d={w:bx.w,h:bx.h},ratio=d.w/Math.max(1,d.h),wide=ratio>=1.45;",
+    "var d={w:bx.w,h:bx.h},ratio=d.w/Math.max(1,d.h);",
     "svg.setAttribute('viewBox',bx.x+' '+bx.y+' '+bx.w+' '+bx.h);",
     "svg.setAttribute('preserveAspectRatio','xMidYMid meet');",
     "svg.removeAttribute('width');svg.removeAttribute('height');",
     "svg.style.maxWidth='none';svg.style.margin='0';svg.style.width=d.w+'px';svg.style.height=d.h+'px';svg.style.display='block';",
-    "svg.style.setProperty('--diagram-print-width',d.w+'px');svg.style.setProperty('--diagram-print-height-width',(ratio*(wide?158:245))+'mm');",
-    "var block=svg.closest('.diagram-block');if(block)block.classList.toggle('diagram-print-wide',wide);",
+    "svg.style.setProperty('--diagram-print-width',d.w+'px');svg.style.setProperty('--diagram-print-height-width',(ratio*760)+'px');",
     "var st={s:1,x:0,y:0},base={s:1,x:0,y:0},raf=0;",
     "function paint(){raf=0;stage.style.transform='translate('+st.x.toFixed(1)+'px,'+st.y.toFixed(1)+'px) scale('+st.s.toFixed(4)+')';",
     "var l=vp.parentNode.querySelector('[data-zoomlabel]');if(l)l.textContent=Math.round(st.s*100)+'%';}",
@@ -2122,17 +2119,6 @@
     return c;
   }
   function cleanDocHtml() { return cleanDocClone().innerHTML; }
-  /* 「导出 PDF」那条路会往导出的网页里多塞这一句：打开即唤起打印框，
-     用户在系统对话框里选「另存为 PDF」。
-     等 document.fonts.ready 再打印 —— 不等的话 Chrome 有时会按回退字体的
-     字宽分页，公式和代码块的断行位置就跟屏幕上看到的不一样了；
-     再挂一个 1.2 秒的兜底，万一 fonts.ready 不兑现也不会卡在这儿。
-     只有 PDF 这条路加，用户手动导出的 .html 不该一打开就弹打印框。 */
-  var EXPORT_PRINT_JS = "(function(){var p=function(){try{window.print();}catch(e){}};var d=false;"
-    + "var go=function(){if(d)return;d=true;setTimeout(p,120);};"
-    + "if(document.fonts&&document.fonts.ready){document.fonts.ready.then(go);}"
-    + "setTimeout(go,1200);})();";
-
   /* ---------- 导出网页：把样式真的带上 --------------------------------
      单文件导出必须自给自足：收件人可能没网、可能把文件拷进 U 盘、可能直接
      双击打开。所以不能 <link> 到 CDN（以前链的是 jsdelivr，离线就整篇裸奔），
@@ -2313,13 +2299,13 @@
        所以导出必须取偏好的原始 CSS，而不是复制运行时已限定的文本。 */
     var custom = store.get('customCss', '');
     var needKatex = !!preview.querySelector('.katex, .math-block');
-    return whenDiagramsReady(preview, { timeout: 10000 }).then(function () { return Promise.all([
+    return whenDiagramsReady(preview, { timeout: 10000, requireSuccess: !!opts.autoPrint }).then(function () { return Promise.all([
       collectExportCss(),
       needKatex ? buildKatexCss() : Promise.resolve('')
     ]); }).then(function (css) {
       return '<!DOCTYPE html>\n<html lang="zh-CN" data-theme="' + theme + '">\n<head>\n'
         + '<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        + '<title>' + escapeHtml(currentName()) + '</title>\n'
+        + '<title>' + escapeHtml(opts.autoPrint ? wordFileName().slice(0, -5) : currentName()) + '</title>\n'
         + '<style>\n' + css[1] + '\n' + css[0] + '\n' + EXPORT_SHIM_CSS + '\n'
         + '.doc{--doc-measure:' + settings.width + 'px;font-size:' + settings.size + 'px;}\n'
         + custom + '\n</style>\n</head>\n'
@@ -2328,89 +2314,28 @@
            拼出一个 doc.css 里不存在的 class。 */
         + '<body><article class="doc font-' + (FONT_CLASSES.indexOf(settings.font) >= 0 ? settings.font : 'sans') + '">'
         + cleanDocHtml() + '</article>\n'
-        + '<script>' + EXPORT_JS + (opts.autoPrint ? EXPORT_PRINT_JS : '') + '<\/script>\n'
+        /* The packaged PDF page prints this clone without interactive re-layout. */
+        + (opts.autoPrint ? '' : '<script>' + EXPORT_JS + '<\/script>\n')
         + '</body>\n</html>';
     });
   }
-  /* ---------- 打印：就在当前页面唤起 --------------------------------------
-     用户要求「简化操作」：不要先开一个标签页再让他去那边点打印。
-
-     能直接打印的前提有两条，缺一不可：
-       1. 文档和 doc.css 的 @media print 在**同一个文档**里（合并模式成立；
-          能力页如果还是 iframe 就不成立）；
-       2. 外壳那套「一屏内自己滚」的布局在打印时被解开，否则内容被裁到第一页
-          —— 这一条由 app/shell.css 末尾的 @media print 负责。
-     两条都满足时 window.print() 打出来的就是这篇文档本身，页眉里的标题
-     即文件名（Chrome 用 document.title 作为「另存为 PDF」的默认文件名）。
-
-     打印期间把 document.title 临时换成文件名：外壳的标题是「Docsmith · 文匠」，
-     不换的话另存出来的 PDF 就叫 Docsmith。打完立刻换回去。
-
-     ⚠ window.print() 是**同步阻塞**的（对话框关掉才返回），所以恢复标题的代码
-     放在它后面就够了；但 Chrome 在某些版本里对 beforeprint/afterprint 的时机
-     有差异，所以两头都挂上，确保标题一定还原。 */
-  function canPrintInPlace() {
-    /* 仍然是 iframe 的话（用户自建能力那种挂载方式），打印会按外层算，
-       走不通 —— 退回开标签页那条路。合并模式下 self === top，这里为 true。 */
-    try { if (window.self !== window.top) return false; } catch (e) { return false; }
-    return typeof window.print === 'function';
-  }
-  function preparePrintDiagrams() {
-    var touched = [];
-    Array.prototype.forEach.call(preview.querySelectorAll('.diagram-block'), function (block) {
-      var svg = block.querySelector('.mm-stage svg,.diagram-render svg'); if (!svg) return;
-      var d = svgDims(svg); var wide = d.w / Math.max(1, d.h) >= 1.45;
-      block.classList.toggle('diagram-print-wide', wide);
-      block.style.setProperty('--diagram-print-ratio', d.w + ' / ' + d.h);
-      touched.push(block);
-    });
-    return function () { touched.forEach(function (block) { block.style.removeProperty('--diagram-print-ratio'); }); };
-  }
-  function printInPlace() {
-    if (!canPrintInPlace()) { printViaTab(); return Promise.resolve(); }
-    return whenDiagramsReady(preview, { timeout: 10000 }).then(function () {
-    var restoreDiagrams = preparePrintDiagrams();
-    var docName = currentName();
-    var prevTitle = document.title;
-    var restored = false;
-    var restore = function () {
-      if (restored) return; restored = true;
-      document.title = prevTitle;
-      restoreDiagrams();
-      window.removeEventListener('afterprint', restore);
-    };
-    document.title = docName;              // ← 另存为 PDF 的默认文件名
-    window.addEventListener('afterprint', restore);
-    try {
-      window.print();
-    } catch (e) {
-      restore();
-      toast('这个环境不允许直接打印，改用新标签页…');
-      printViaTab();
-      return;
-    }
-    /* print() 返回后对话框已经关了（或者浏览器异步处理，afterprint 会兜住）。
-       再挂一个超时兜底，避免极端情况下标题一直停在文件名上。 */
-    setTimeout(restore, 60000);
-    restore();
-    });
-  }
-  /* 兜底：老路子 —— 生成一份自给自足的网页，在真标签页里打开并自动唤起打印。
-     只在 window.print() 走不通时用（iframe 挂载、或 print 被禁用）。 */
+  /* ---------- 打印：总是打印干净的独立文档 ------------------------------
+     外壳的滚动容器、侧栏和能力页定位不能参与分页；把当前正文克隆到
+     自给自足的标签页，既沿用 md-html-workspace.html 的稳定路径，也让
+     <title> 成为打印窗口的默认文件名。 */
   function printViaTab() {
     toast('正在准备打印版式…');
-    buildStandalone({ autoPrint: true }).then(function (html) {
+    return buildStandalone({ autoPrint: true }).then(function (html) {
+      if (window.DSPrintHtml) return window.DSPrintHtml(html);
       if (IN_SHELL) {
         try {
           window.parent.postMessage({ ns: BUS_NS, type: 'printHtml',
             name: currentName() + '.pdf', html: html }, '*');
           toast('已在新标签页打开 —— 在打印窗口里选「另存为 PDF」');
-          return;
+          return true;
         } catch (e) { /* 发不出去就自己开，见下 */ }
       }
-      openPrintTab(html);     // 整页模式 / 直接打开这个页面时走这里
-    }, function (e) {
-      toast('准备打印失败：' + ((e && e.message) || '未知错误'), 'err');
+      return openPrintTab(html);     // Standalone workspace without a shell.
     });
   }
 
@@ -2420,9 +2345,14 @@
   function openPrintTab(html) {
     var url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
     var w = null;
-    try { w = window.open(url, '_blank'); } catch (e) {}
+    try {
+      var printUrl = new URL('print.html', SELF_DIR);
+      printUrl.searchParams.set('document', url);
+      w = window.open(printUrl.href, '_blank');
+    } catch (e) {}
     if (!w) toast('浏览器拦住了新标签页。允许弹出窗口后再试，或先「导出 → 网页」再自己打印。', 'err');
     setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
+    return !!w;
   }
   function download(name, content, type, businessFormat) {
     var blob = content instanceof Blob ? content : new Blob([content], { type: type || 'text/plain' });
@@ -5922,12 +5852,8 @@
        真被移除也不该连累其余初始化。 */
     function on(sel, ev, fn) { var el = $(sel); if (el) el.addEventListener(ev, fn); }
     on('#downloadBtn', 'click', exportWord);
-    /* #printBtn 走 MDW.exportPdf()，不是裸的 window.print()。
-       它藏在 attic 里，但命令面板和旧代码还按 id 点它。
-       exportPdf() 现在就地唤起打印框（printInPlace()），并且会先把
-       document.title 换成文件名 —— 直接 window.print() 就少了这一步，
-       另存出来的 PDF 会叫「Docsmith」而不是原文件名；iframe 挂载那种
-       走不通的情形也由它自动退回开标签页。所以统一从这个入口进。 */
+    /* #printBtn 走 MDW.exportPdf()，不是裸的 window.print()。它同样交给
+       独立打印页处理，避免外壳布局和浏览器标题影响 PDF。 */
     on('#printBtn', 'click', function () { if (!currentId) { toast('先打开一份文档', 'err'); return; } window.MDW.exportPdf(); });
 
     $$('[data-action]').forEach(function (b) { b.addEventListener('click', function () { var a = b.dataset.action; if (a === 'folder') openFolder(); else if (a === 'file') openFiles(); else if (a === 'url') openUrlPop(); else if (a === 'edit') setEdit(true); }); });
@@ -6151,29 +6077,14 @@
        同一个文件另存一遍。要源文件用「保存」。分享里的「分享 .md 源文件」
        是另一回事（那是传到云上拿链接），保留。 */
 
-    /* PDF / 打印：**就在当前页面唤起打印**，不再绕道新标签页。
-
-       历史：这条路曾经真的不通，所以才改成「生成一份网页 → 新标签页打开 →
-       在那里打印」。当时能力页是 iframe，window.print() 打的是外壳那一层，
-       而 @media print 写在能力页自己的样式表里，管不到外面 —— 点了没反应。
-
-       现在两个前提都变了：
-         · 内置能力已经合并进外壳文档，不再是 iframe；doc.css 也被注入同一个
-           文档（经 scopeCss 限定），它的 @media print 直接生效。
-         · 外壳那套「一屏之内自己滚」的布局（html/body overflow:hidden、
-           .stage/.frame position:absolute）会把打印内容裁到只剩第一页 ——
-           这一条已经在 app/shell.css 末尾的 @media print 里解开了。
-           量过：120 段的文档，解开前 3638 个文字绘制指令、最后一页是满的
-           （= 后面被截掉了），解开后 4938 个、最后一页是半页（= 真的印完了）。
-
-       于是用户的操作从「点导出 → 等新标签页 → 在那边再点打印」变成
-       「点一下 → 打印框直接弹出来」。
-
-       仍然保留新标签页那条路作为兜底（openPrintTab），只在 window.print()
-       真的不可用时才走 —— 见下面的 try/catch 和 canPrintInPlace()。 */
+    /* PDF uses the standalone document, never the shell's scrolling layout. */
     exportPdf: function () {
       if (!currentId) { toast('先打开一份文档', 'err'); return; }
-      return printInPlace().catch(function (e) { toast('准备打印失败：' + ((e && e.message) || '未知错误'), 'err'); });
+      wordCommitEditing();
+      return printViaTab().catch(function (e) {
+        toast('准备打印失败：' + ((e && e.message) || '未知错误'), 'err');
+        return false;
+      });
     },
     hasDoc: function () { return !!currentId; },
 
