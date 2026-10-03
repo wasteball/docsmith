@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PDF Mermaid sizing smoke</title>
+  <style>
+    html,body{margin:0}
+    iframe{display:block;width:1400px;height:900px;border:0}
+    #standalone{position:fixed;left:-2200px;top:0}
+  </style>
+</head>
+<body>
+  <iframe id="workspace" src="../src/views/markdown/index.html" title="Markdown workspace"></iframe>
+  <script type="module">
+    const CASES = [
+      { id: 'small-tall', rect: [116, 216] },
+      { id: 'very-tall', rect: [196, 1196] },
+      { id: 'wide', rect: [1396, 896] }
+    ];
+    const source = CASES.map(({ id }) => `\n\`\`\`mermaid\n${id}\n\`\`\``).join('\n');
+    const frame = document.querySelector('#workspace');
+
+    function fail(error) {
+      const cause = error instanceof Error ? error : new Error(String(error));
+      window.__pdfMermaidSizingSmoke = { error: cause.message, stack: cause.stack || '' };
+      document.body.dataset.rendered = 'error';
+      document.title = cause.message;
+    }
+    function waitFor(check, message, timeout = 20000) {
+      const started = Date.now();
+      return new Promise((resolve, reject) => {
+        (function poll() {
+          const value = check();
+          if (value) return resolve(value);
+          if (Date.now() - started > timeout) return reject(new Error(message));
+          setTimeout(poll, 50);
+        })();
+      });
+    }
+    function nextPaint(target) {
+      return new Promise(resolve => target.requestAnimationFrame(() => target.requestAnimationFrame(resolve)));
+    }
+    function mmToPx(doc, value) {
+      const probe = doc.createElement('div');
+      probe.style.cssText = `position:absolute;visibility:hidden;width:${value}mm`;
+      doc.body.appendChild(probe);
+      const width = probe.getBoundingClientRect().width;
+      probe.remove();
+      return width;
+    }
+    function measure(doc, label) {
+      const blocks = [...doc.querySelectorAll('.diagram-block')];
+      if (blocks.length !== CASES.length) throw new Error(`${label} 图表数量错误: ${blocks.length}`);
+      return blocks.map((block, index) => {
+        const svg = block.querySelector('.mm-stage > svg');
+        const stage = block.querySelector('.mm-stage');
+        if (!svg || !stage) throw new Error(`${label} 第 ${index + 1} 张图缺少 SVG 或 stage`);
+        const viewBox = svg.getAttribute('viewBox').trim().split(/\s+/).map(Number);
+        const svgRect = svg.getBoundingClientRect();
+        const stageRect = stage.getBoundingClientRect();
+        return {
+          id: CASES[index].id,
+          natural: [viewBox[2], viewBox[3]],
+          rendered: [svgRect.width, svgRect.height],
+          stageWidth: stageRect.width,
+          wide: block.classList.contains('diagram-print-wide'),
+          ratioDelta: Math.abs((svgRect.width / svgRect.height) / (viewBox[2] / viewBox[3]) - 1)
+        };
+      });
+    }
+    function assertGeometry(doc, label) {
+      const items = measure(doc, label);
+      const portraitHeight = mmToPx(doc, 245);
+      const landscapeHeight = mmToPx(doc, 158);
+      const [small, tall, wide] = items;
+      const near = (actual, expected) => Math.abs(actual - expected) <= 1.5;
+
+      if (!near(small.rendered[0], small.natural[0]) || !near(small.rendered[1], small.natural[1])) {
+        throw new Error(`${label} 小型竖图被放大或变形`);
+      }
+      if (!near(tall.rendered[1], portraitHeight)) {
+        throw new Error(`${label} 超高图没有同时受 245mm 页高约束: ${tall.rendered[1]}`);
+      }
+      if (!wide.wide || !near(wide.rendered[1], landscapeHeight)) {
+        throw new Error(`${label} 横向图没有同时受 158mm 横向页高约束: ${wide.rendered[1]}`);
+      }
+      items.forEach(item => {
+        if (item.rendered[0] > item.natural[0] + 1 || item.rendered[1] > item.natural[1] + 1) {
+          throw new Error(`${label} ${item.id} 超过固有尺寸`);
+        }
+        if (item.rendered[0] > item.stageWidth + 1) throw new Error(`${label} ${item.id} 超出容器宽度`);
+        if (!Number.isFinite(item.ratioDelta) || item.ratioDelta > 0.01) {
+          throw new Error(`${label} ${item.id} 宽高比失真: ${item.ratioDelta}`);
+        }
+      });
+      return { portraitHeight, landscapeHeight, items };
+    }
+
+    (async () => {
+      try {
+        const runtime = await waitFor(() => {
+          const win = frame.contentWindow;
+          return win?.MDW && win?.DocsmithDiagrams && { win, doc: frame.contentDocument };
+        }, '工作台没有启动');
+        const originalRender = runtime.win.DocsmithDiagrams.renderFencedDiagram;
+        runtime.win.DocsmithDiagrams.renderFencedDiagram = (_language, diagramSource) => {
+          const sample = CASES.find(item => String(diagramSource).includes(item.id));
+          if (!sample) throw new Error(`未知测试图: ${diagramSource}`);
+          const [width, height] = sample.rect;
+          return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#eee" stroke="#333"/></svg>`;
+        };
+        try {
+          runtime.win.MDW.setText(source);
+          await runtime.win.MDW.whenDiagramsReady({ timeout: 20000, requireSuccess: true });
+        } finally {
+          runtime.win.DocsmithDiagrams.renderFencedDiagram = originalRender;
+        }
+
+        const html = await runtime.win.MDW.buildStandaloneHtml();
+        const standalone = document.createElement('iframe');
+        standalone.id = 'standalone';
+        const loaded = new Promise(resolve => standalone.addEventListener('load', resolve, { once: true }));
+        standalone.srcdoc = html;
+        document.body.appendChild(standalone);
+        await loaded;
+        await waitFor(() => {
+          const viewports = [...standalone.contentDocument.querySelectorAll('.mm-viewport')];
+          return viewports.length === CASES.length && viewports.every(viewport => viewport.__pz);
+        }, '独立 HTML 没有完成图表初始化');
+
+        window.__pdfMermaidSizingSmoke = { ready: true, waitingForPrint: true };
+        document.body.dataset.rendered = 'ready';
+        const media = matchMedia('print');
+        let checked = false;
+        const checkPrint = async () => {
+          if (checked || !media.matches) return;
+          checked = true;
+          try {
+            await nextPaint(window);
+            await nextPaint(standalone.contentWindow);
+            const result = {
+              ready: true,
+              native: assertGeometry(runtime.doc, '工作台'),
+              standalone: assertGeometry(standalone.contentDocument, '独立 HTML')
+            };
+            window.__pdfMermaidSizingSmoke = result;
+            document.body.dataset.rendered = 'true';
+            document.title = JSON.stringify(result);
+          } catch (error) {
+            fail(error);
+          }
+        };
+        if (media.addEventListener) media.addEventListener('change', checkPrint);
+        else media.addListener(checkPrint);
+        setInterval(checkPrint, 100);
+        checkPrint();
+      } catch (error) {
+        fail(error);
+      }
+    })();
+  </script>
+</body>
+</html>
