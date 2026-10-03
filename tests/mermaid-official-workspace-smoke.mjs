@@ -113,9 +113,9 @@ frame.addEventListener('load', () => {
       if (blocks[9].dataset.diagramLanguage !== 'infographic' || !infographic.textContent.includes('客户增长引擎')) throw new Error('Infographic 渲染丢失');
 
       const html = await win.MDW.buildStandaloneHtml();
-      const embedded = (html.match(/<div class="diagram-block"/g) || []).length;
-      if (embedded !== 10 || html.includes('mermaid.min.js') || html.includes('正在画图')) throw new Error('独立 HTML 没有完整内嵌混合图表');
       const exported = new win.DOMParser().parseFromString(html, 'text/html');
+      const embedded = exported.querySelectorAll('.diagram-block').length;
+      if (embedded !== 10 || html.includes('mermaid.min.js') || html.includes('正在画图')) throw new Error('独立 HTML 没有完整内嵌混合图表');
       const inlineScript = [...exported.scripts].map((script) => script.textContent).join('\n');
       if (!inlineScript.includes('function setup(vp)') || !inlineScript.includes('function boot()')) throw new Error('独立 HTML 缺少交互启动脚本');
 

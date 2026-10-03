@@ -2351,7 +2351,7 @@
       block.style.setProperty('--diagram-print-ratio', d.w + ' / ' + d.h);
       touched.push(block);
     });
-    return function () { touched.forEach(function (block) { block.classList.remove('diagram-print-wide'); block.style.removeProperty('--diagram-print-ratio'); }); };
+    return function () { touched.forEach(function (block) { block.style.removeProperty('--diagram-print-ratio'); }); };
   }
   function printInPlace() {
     if (!canPrintInPlace()) { printViaTab(); return Promise.resolve(); }
