@@ -1,8 +1,15 @@
-import { CAPABILITIES, KEYS } from '../src/core/config.js';
-import { exportAll } from '../src/core/store.js';
-import { secretPaths } from '../src/storage/index.js';
+const KEYS = {
+  appearance: 'docsmith:appearance',
+  shell: 'docsmith:shell',
+  storage: 'docsmith:storage',
+  library: 'docsmith:library',
+  prefs: 'docsmith:prefs',
+  reviewNotes: 'docsmith:review-notes',
+  baselines: 'docsmith:confirmed'
+};
 
 const RESULT_VAR = '__removeCardsSmoke';
+const diagnostics = {};
 const CUSTOM_ID = 'custom-kept';
 const initialMirror = {
   [KEYS.prefs]: {
@@ -34,7 +41,7 @@ function finish(result, rendered) {
 
 function fail(error) {
   const cause = error instanceof Error ? error : new Error(String(error));
-  finish({ error: { name: cause.name, message: cause.message, stack: cause.stack || '' } }, 'error');
+  finish({ error: { name: cause.name, message: cause.message, stack: cause.stack || '' }, diagnostics }, 'error');
 }
 
 function assert(condition, message) {
@@ -114,11 +121,24 @@ async function bootRealShell(frame) {
   assert(html.includes(mainTag), '找不到真实外壳 main.js 入口');
   html = html.replace(mainTag,
     `<script>${chromeStubSource(initialMirror)}<\/script>`
-    + `<script type="module">import * as app from './main.js'; window.__docsmithMain = app;<\/script>`);
+    + `<script type="module">
+      await import('./main.js');
+      const [{ CAPABILITIES, KEYS }, { exportAll }, { secretPaths }] = await Promise.all([
+        import('../core/config.js'), import('../core/store.js'), import('../storage/index.js')
+      ]);
+      window.__docsmithTest = {
+        loaded: true,
+        CAPABILITIES,
+        KEYS,
+        exportAll,
+        secretPaths,
+        importMigration: () => import('../core/remove-cards.js')
+      };
+    <\/script>`);
 
   const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
   frame.src = url;
-  await waitFor(() => frame.contentWindow?.__docsmithMain, '真实外壳启动');
+  await waitFor(() => frame.contentWindow?.__docsmithTest?.loaded, '真实外壳启动');
   return { win: frame.contentWindow, doc: frame.contentDocument, url };
 }
 
@@ -133,28 +153,42 @@ async function checkZip(win) {
   assert(blob.type === 'application/zip', 'DSZip MIME 类型错误');
   assert(view.getUint32(0, true) === 0x04034b50, 'ZIP 本地文件头无效');
   assert(view.getUint16(6, true) === 0x0800, 'ZIP 文件名未标记 UTF-8');
-  assert(view.getUint16(8, true) === 0, '小文件应使用 ZIP store 模式');
-  const size = view.getUint32(18, true);
+  const method = view.getUint16(8, true);
+  const compressedSize = view.getUint32(18, true);
+  const rawSize = view.getUint32(22, true);
   const nameLength = view.getUint16(26, true);
   const extraLength = view.getUint16(28, true);
   const dataAt = 30 + nameLength + extraLength;
+  const compressed = bytes.slice(dataAt, dataAt + compressedSize);
+  let raw;
+  if (method === 0) raw = compressed;
+  else if (method === 8) {
+    const stream = new win.Blob([compressed]).stream()
+      .pipeThrough(new win.DecompressionStream('deflate-raw'));
+    raw = new Uint8Array(await new win.Response(stream).arrayBuffer());
+  } else throw new Error(`ZIP 使用了不支持校验的方法 ${method}`);
+
   const name = new TextDecoder().decode(bytes.slice(30, 30 + nameLength));
-  const content = new TextDecoder().decode(bytes.slice(dataAt, dataAt + size));
-  assert(name === '保留/ok.txt' && content === text, 'ZIP 条目名或内容损坏');
-  assert(view.getUint32(dataAt + size, true) === 0x02014b50, 'ZIP 中央目录无效');
+  const content = new TextDecoder().decode(raw);
+  assert(name === '保留/ok.txt' && content === text && raw.length === rawSize, 'ZIP 条目名、内容或长度损坏');
+  const centralAt = dataAt + compressedSize;
+  assert(view.getUint32(centralAt, true) === 0x02014b50, 'ZIP 中央目录无效');
+  assert(view.getUint16(centralAt + 10, true) === method, 'ZIP 两处压缩方法不一致');
+  assert(view.getUint32(centralAt + 20, true) === compressedSize
+    && view.getUint32(centralAt + 24, true) === rawSize, 'ZIP 中央目录大小不一致');
   assert(view.getUint32(bytes.length - 22, true) === 0x06054b50, 'ZIP 结束记录无效');
-  return { bytes: bytes.length, name };
+  return { bytes: bytes.length, name, method };
 }
 
 async function checkCleanAndIdempotent(win) {
-  const cleanup = win.__docsmithMain.cleanupRemovedCards;
-  assert(typeof cleanup === 'function', '外壳没有共享的 cards 清理入口');
+  const { cleanupRemovedCards } = await win.__docsmithTest.importMigration();
+  assert(typeof cleanupRemovedCards === 'function', '找不到共享的 cards 清理模块');
   await sleep(500);
 
   win.localStorage.removeItem(KEYS.prefs);
   win.localStorage.removeItem(KEYS.shell);
   win.__chromeStub.calls.sets.length = 0;
-  cleanup();
+  cleanupRemovedCards();
   await sleep(450);
   assert(win.localStorage.getItem(KEYS.prefs) == null && win.localStorage.getItem(KEYS.shell) == null,
     '全新安装被迁移写入了状态');
@@ -171,7 +205,7 @@ async function checkCleanAndIdempotent(win) {
     keep: 9
   }));
   win.__chromeStub.calls.sets.length = 0;
-  cleanup();
+  cleanupRemovedCards();
   await sleep(450);
   const once = {
     prefs: stored(win, KEYS.prefs),
@@ -185,7 +219,7 @@ async function checkCleanAndIdempotent(win) {
     '首次清理没有同步 Chrome 镜像');
 
   win.__chromeStub.calls.sets.length = 0;
-  cleanup();
+  cleanupRemovedCards();
   await sleep(450);
   assert(JSON.stringify({ prefs: stored(win, KEYS.prefs), shell: stored(win, KEYS.shell) }) === JSON.stringify(once),
     '重复清理改变了状态');
@@ -230,7 +264,14 @@ async function importOldBackup(win, doc) {
 
     const restoredPrefs = stored(win, KEYS.prefs);
     const restoredShell = stored(win, KEYS.shell);
-    assert(win.__chromeStub.calls.operations[0]?.type === 'get', '启动没有先读取 Chrome 镜像');
+    const operations = win.__chromeStub.calls.operations;
+    diagnostics.restore = { operations, prefs: restoredPrefs, shell: restoredShell };
+    const restoreGet = operations.findIndex((operation) => operation.type === 'get'
+      && operation.keys?.includes?.(KEYS.prefs) && operation.keys.includes(KEYS.shell));
+    const firstStateWrite = operations.findIndex((operation) => operation.type === 'set'
+      && operation.keys?.some?.((key) => key === KEYS.prefs || key === KEYS.shell));
+    assert(restoreGet >= 0, '启动没有从 Chrome 镜像读取 prefs/shell');
+    assert(firstStateWrite < 0 || restoreGet < firstStateWrite, 'cards 清理发生在 Chrome 镜像恢复之前');
     assert(withoutCards(restoredPrefs), 'Chrome 镜像恢复后仍保留 cards 偏好');
     assert(restoredPrefs['editor.mode'] === 'edit' && restoredPrefs['custom.preference'] === 'keep',
       '迁移丢失了其他偏好');
@@ -248,12 +289,14 @@ async function importOldBackup(win, doc) {
     doc.querySelector('#nav .cap[data-id="files"]')?.click();
     await waitFor(() => win.DSZip && doc.querySelector('[data-ds-host="files"]'), '文件库挂载');
     const zip = await checkZip(win);
-    assert(CAPABILITIES.map((cap) => cap.id).join(',') === 'markdown,files', '内置能力表仍含 cards');
+    assert(win.__docsmithTest.CAPABILITIES.map((cap) => cap.id).join(',') === 'markdown,files', '内置能力表仍含 cards');
 
     await checkCleanAndIdempotent(win);
     await importOldBackup(win, doc);
 
-    const payload = exportAll(Object.values(KEYS), { secretPaths: secretPaths() });
+    const payload = win.__docsmithTest.exportAll(Object.values(win.__docsmithTest.KEYS), {
+      secretPaths: win.__docsmithTest.secretPaths()
+    });
     const exportedPrefs = payload.data[KEYS.prefs];
     const exportedShell = payload.data[KEYS.shell];
     const exportedStorage = payload.data[KEYS.storage];
