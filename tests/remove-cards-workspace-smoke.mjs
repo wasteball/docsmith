@@ -228,7 +228,7 @@ async function checkCleanAndIdempotent(win) {
   return true;
 }
 
-async function importOldBackup(win, doc) {
+async function importOldBackup(frame, win, doc) {
   const imported = {
     _docsmith: 1,
     data: {
@@ -248,10 +248,39 @@ async function importOldBackup(win, doc) {
   assert(input, '找不到真实配置导入控件');
   const file = new win.File([JSON.stringify(imported)], 'old-docsmith.json', { type: 'application/json' });
   Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+
+  const storageEvents = [];
+  const completed = new Promise((resolve, reject) => {
+    const detach = () => {
+      window.removeEventListener('storage', onStorage);
+      frame.removeEventListener('load', onReload);
+    };
+    const snapshot = () => {
+      const prefs = stored(window, KEYS.prefs);
+      const shell = stored(window, KEYS.shell);
+      diagnostics.import = { storageEvents, prefs, shell };
+      return { prefs, shell };
+    };
+    const onStorage = (event) => {
+      if (event.key !== KEYS.prefs && event.key !== KEYS.shell) return;
+      storageEvents.push(event.key);
+      const { prefs, shell } = snapshot();
+      if (prefs?.['import.marker'] !== 'current-session' || !withoutCards(prefs)) return;
+      if (shell?.order?.includes('cards') || shell?.hidden?.includes('cards') || shell?.activeId === 'cards') return;
+      detach();
+      resolve();
+    };
+    const onReload = () => {
+      snapshot();
+      detach();
+      reject(new Error('旧配置在导入边界清理完成前触发了重载'));
+    };
+    window.addEventListener('storage', onStorage);
+    frame.addEventListener('load', onReload);
+  });
+
   input.dispatchEvent(new win.Event('change', { bubbles: true }));
-  await waitFor(() => stored(win, KEYS.prefs)?.['import.marker'] === 'current-session'
-    && withoutCards(stored(win, KEYS.prefs))
-    && !stored(win, KEYS.shell)?.order?.includes('cards'), '旧配置导入后清理', 600);
+  await completed;
   assert(!doc.querySelector('#nav .cap[data-id="cards"]'), '导入旧配置后 cards 回到了当前导航');
 }
 
@@ -292,7 +321,7 @@ async function importOldBackup(win, doc) {
     assert(win.__docsmithTest.CAPABILITIES.map((cap) => cap.id).join(',') === 'markdown,files', '内置能力表仍含 cards');
 
     await checkCleanAndIdempotent(win);
-    await importOldBackup(win, doc);
+    await importOldBackup(frame, win, doc);
 
     const payload = win.__docsmithTest.exportAll(Object.values(win.__docsmithTest.KEYS), {
       secretPaths: win.__docsmithTest.secretPaths()
