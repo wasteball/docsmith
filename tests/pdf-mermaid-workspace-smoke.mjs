@@ -221,14 +221,15 @@ flowchart TD
     const frame = document.querySelector('#workspace');
     if (!frame) throw new Error('找不到 markdown iframe');
 
-    const { win, doc } = await waitForRuntime(frame);
+    let { win, doc } = await waitForRuntime(frame);
     const response = await fetch(new URL(fixture, location.href));
     if (!response.ok) throw new Error(`fixture 加载失败: ${response.status} ${fixture}`);
-    await win.MDW.setText(await response.text());
+    const fixtureText = await response.text();
+    await win.MDW.setText(fixtureText);
     await win.MDW.whenDiagramsReady({ timeout: 120000, requireSuccess: true });
 
-    const blocks = [...doc.querySelectorAll('.diagram-block')];
-    const states = blocks.map(block => block.dataset.diagramState || '');
+    let blocks = [...doc.querySelectorAll('.diagram-block')];
+    let states = blocks.map(block => block.dataset.diagramState || '');
     if (blocks.length !== 8) throw new Error(`Mermaid 图数量应为 8，实际为 ${blocks.length}`);
     if (blocks.some(block => !block.querySelector('.mm-stage > svg'))) throw new Error('存在没有 SVG 的 Mermaid 图');
     if (states.some(state => state !== 'ready')) throw new Error(`Mermaid 图状态异常: ${states.join(',')}`);
@@ -254,6 +255,15 @@ flowchart TD
     try { readiness.settleGeneration = await checkSettleGeneration(frame); }
     catch (error) { failures.push(error.message || String(error)); }
     if (failures.length) throw new Error(failures.join(' | '));
+
+    ({ win, doc } = await waitForRuntime(frame));
+    win.MDW.setText(fixtureText);
+    await win.MDW.whenDiagramsReady({ timeout: 120000, requireSuccess: true });
+    blocks = [...doc.querySelectorAll('.diagram-block')];
+    states = blocks.map(block => block.dataset.diagramState || '');
+    if (blocks.length !== 8) throw new Error(`恢复 fixture 后 Mermaid 图数量应为 8，实际为 ${blocks.length}`);
+    if (blocks.some(block => !block.querySelector('.mm-stage > svg'))) throw new Error('恢复 fixture 后存在没有 SVG 的 Mermaid 图');
+    if (states.some(state => state !== 'ready')) throw new Error(`恢复 fixture 后 Mermaid 图状态异常: ${states.join(',')}`);
 
     const result = {
       ready: true,
