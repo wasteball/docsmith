@@ -1118,9 +1118,8 @@
       return line;
     }).join('\n');
   }
-  var mmRunToken = 0, mmReadyPromise = Promise.resolve({ ready: true, errors: 0, cancelled: false });
-  var mmSettledToken = -1;
-  var mmSettledScope = null;
+  var mmRunToken = 0, mmRenderTail = Promise.resolve();
+  var mmScopeRuns = new WeakMap();
   function isMermaidSequence(source) {
     return /(?:^|\n)\s*sequenceDiagram\b/i.test(String(source || ''));
   }
@@ -1194,69 +1193,66 @@
     if (window.mermaid && typeof mermaid.initialize === 'function') mermaid.initialize(mermaidConfig(mode, source));
   }
   function renderDiagrams(root) {
-    mmSettledToken = -1;
-    mmSettledScope = null;
-    if (!window.DocsmithDiagrams) return Promise.resolve({ ready: true, errors: 0, cancelled: false });
     var scope = root || preview;
-    var blocks = scope.querySelectorAll('.diagram-block');
-    if (!blocks.length) return Promise.resolve({ ready: true, errors: 0, cancelled: false });
-    var idx = 0, errors = 0;
-    /* 每次重渲染换一个令牌。上一轮还在排队的图会在下一步发现令牌变了就退出，
-       否则文档一改就叠一条新队列，几轮之后同一时刻有十几条队列在跑。 */
     var token = ++mmRunToken;
+    var run = { token: token, promise: null, settled: false };
+    mmScopeRuns.set(scope, run);
+    var blocks = scope.querySelectorAll('.diagram-block');
+    if (!window.DocsmithDiagrams || !blocks.length) {
+      run.promise = Promise.resolve({ ready: true, errors: 0, cancelled: false, token: token });
+      return run.promise;
+    }
     Array.prototype.forEach.call(blocks, function (block) { block.dataset.diagramState = 'pending'; });
-    /* Render diagrams ONE AT A TIME.
-       While laying out a diagram, mermaid drops a temporary <div id="dmmd-N"> into
-       the <body>, measures it, then removes it. The old code rendered every block in
-       parallel and called sweepMermaidLeftovers() inside each promise — so the first
-       diagram to finish deleted the still-in-flight temp nodes of the later ones.
-       Those interrupted renders then hit "Cannot read properties of null (reading
-       'appendChild')". Rendering sequentially keeps exactly one temp node live at a
-       time, so the sweep can never race an in-flight render. */
-    var settle;
-    var promise = new Promise(function (resolve) { settle = resolve; });
-    mmReadyPromise = promise;
-    function finish(cancelled) {
-      settle({ ready: !cancelled, errors: errors, cancelled: !!cancelled, token: token });
-      if (!cancelled) {
-        try { window.dispatchEvent(new CustomEvent('docsmith:diagrams-ready', { detail: { errors: errors, token: token } })); } catch (e) {}
-      }
-    }
-    function step() {
-      if (token !== mmRunToken) { finish(true); return; }
-      if (idx >= blocks.length) { finish(false); return; }
-      var b = blocks[idx++];
-      if (!b.isConnected) { b.dataset.diagramState = 'cancelled'; step(); return; }
-      var codeEl = b.querySelector('.diagram-source code'), target = b.querySelector('.diagram-render');
-      if (!codeEl || !target) { b.dataset.diagramState = 'error'; errors++; step(); return; }
-      var language = b.dataset.diagramLanguage || 'mermaid';
-      var raw = codeEl.textContent;
-      var src = language === 'mermaid' ? prepareMermaidSource(raw) : raw;
-      if (!src || !src.trim()) { errors++; mmError(b, target, new Error('empty diagram')); step(); return; }
-      /* Mermaid 的配置是全局的，所以必须紧挨当前图的 render 设置。队列本来就是串行，
-         这样彩色时序图之后的 flowchart 会立即切回 base，不会继承 redux-color。 */
-      if (language === 'mermaid') initializeMermaid(resolvedTheme(), src);
-      var markReady = function () { b.dataset.diagramState = 'ready'; };
-      var markError = function (e) { errors++; mmError(b, target, e); };
-      var advance = function () { sweepMermaidLeftovers(); step(); };
-      try {
-        var out = DocsmithDiagrams.renderFencedDiagram(language, src, {
-          mermaidRender: function (source) {
-            return DocsmithDiagrams.renderMermaid
-              ? DocsmithDiagrams.renderMermaid(source, { renderId: 'docsmith-mmd-' + token + '-' + idx })
-              : mermaid.render('docsmith-mmd-' + token + '-' + idx, source);
+    /* Mermaid's configuration and temporary DOM are global. Keep every scope on one
+       serial tail, while a newer generation only cancels work owned by the same scope. */
+    function start() {
+      var idx = 0, errors = 0;
+      return new Promise(function (resolve) {
+        function finish(cancelled) {
+          resolve({ ready: !cancelled, errors: errors, cancelled: !!cancelled, token: token });
+          if (!cancelled) {
+            try { window.dispatchEvent(new CustomEvent('docsmith:diagrams-ready', { detail: { errors: errors, token: token } })); } catch (e) {}
           }
-        });
-        if (out && typeof out.then === 'function') {
-          out.then(function (svg) { try { mountDiagram(target, svg && svg.svg ? svg.svg : svg); markReady(); } catch (e) { markError(e); } })
-             .catch(markError)
-             .then(advance, advance);
-        } else if (typeof out === 'string') { try { mountDiagram(target, out); markReady(); } catch (e) { markError(e); } advance(); }
-        else { markError(new Error('图表没有生成内容')); advance(); }
-      } catch (e) { markError(e); advance(); }
+        }
+        function step() {
+          if (mmScopeRuns.get(scope) !== run) { finish(true); return; }
+          if (idx >= blocks.length) { finish(false); return; }
+          var b = blocks[idx++];
+          if (!b.isConnected) { b.dataset.diagramState = 'cancelled'; step(); return; }
+          var codeEl = b.querySelector('.diagram-source code'), target = b.querySelector('.diagram-render');
+          if (!codeEl || !target) { b.dataset.diagramState = 'error'; errors++; step(); return; }
+          var language = b.dataset.diagramLanguage || 'mermaid';
+          var raw = codeEl.textContent;
+          var src = language === 'mermaid' ? prepareMermaidSource(raw) : raw;
+          if (!src || !src.trim()) { errors++; mmError(b, target, new Error('empty diagram')); step(); return; }
+          /* Mermaid 的配置是全局的，所以必须紧挨当前图的 render 设置。队列本来就是串行，
+             这样彩色时序图之后的 flowchart 会立即切回 base，不会继承 redux-color。 */
+          if (language === 'mermaid') initializeMermaid(resolvedTheme(), src);
+          var markReady = function () { b.dataset.diagramState = 'ready'; };
+          var markError = function (e) { errors++; mmError(b, target, e); };
+          var advance = function () { sweepMermaidLeftovers(); step(); };
+          try {
+            var out = DocsmithDiagrams.renderFencedDiagram(language, src, {
+              mermaidRender: function (source) {
+                return DocsmithDiagrams.renderMermaid
+                  ? DocsmithDiagrams.renderMermaid(source, { renderId: 'docsmith-mmd-' + token + '-' + idx })
+                  : mermaid.render('docsmith-mmd-' + token + '-' + idx, source);
+              }
+            });
+            if (out && typeof out.then === 'function') {
+              out.then(function (svg) { try { mountDiagram(target, svg && svg.svg ? svg.svg : svg); markReady(); } catch (e) { markError(e); } })
+                 .catch(markError)
+                 .then(advance, advance);
+            } else if (typeof out === 'string') { try { mountDiagram(target, out); markReady(); } catch (e) { markError(e); } advance(); }
+            else { markError(new Error('图表没有生成内容')); advance(); }
+          } catch (e) { markError(e); advance(); }
+        }
+        step();
+      });
     }
-    step();
-    return promise;
+    run.promise = mmRenderTail.then(start);
+    mmRenderTail = run.promise.then(function () {}, function () {});
+    return run.promise;
   }
   function nextPaint() { return new Promise(function (resolve) {
     var done = false; var finish = function () { if (done) return; done = true; resolve(); };
@@ -1277,29 +1273,46 @@
   function whenDiagramsReady(root, opts) {
     opts = opts || {};
     var timeout = opts.timeout == null ? 10000 : opts.timeout;
-    var wait = mmReadyPromise || Promise.resolve({ ready: true, errors: 0, cancelled: false });
-    var timer;
-    var timed = new Promise(function (_, reject) { timer = setTimeout(function () { reject(new Error('图表渲染超时，请稍后重试')); }, timeout); });
-    return Promise.race([wait, timed]).then(function (result) {
-      clearTimeout(timer);
-      if (result.cancelled) return whenDiagramsReady(root, opts);
-      var scope = root || preview;
-      if (result.token != null && result.token === mmSettledToken && scope === mmSettledScope) {
-        if (opts.requireSuccess && result.errors) throw new Error(result.errors + ' 个图表未能渲染');
+    var deadline = Date.now() + timeout;
+    var scope = root || preview;
+    function waitUntilDeadline(promise) {
+      var remaining = deadline - Date.now();
+      if (remaining < 0) return Promise.reject(new Error('图表渲染超时，请稍后重试'));
+      var timer;
+      var timed = new Promise(function (_, reject) { timer = setTimeout(function () { reject(new Error('图表渲染超时，请稍后重试')); }, remaining); });
+      return Promise.race([promise, timed]).then(function (result) {
+        clearTimeout(timer);
         return result;
-      }
-      var fonts = document.fonts && document.fonts.ready ? document.fonts.ready.catch(function () {}) : Promise.resolve();
-      return fonts.then(function () {
-        return settleDiagramViewports(scope);
-      }).then(function () {
-        if (result.token != null) {
-          mmSettledToken = result.token;
-          mmSettledScope = scope;
-        }
-        if (opts.requireSuccess && result.errors) throw new Error(result.errors + ' 个图表未能渲染');
-        return result;
+      }, function (error) {
+        clearTimeout(timer);
+        throw error;
       });
-    }, function (error) { clearTimeout(timer); throw error; });
+    }
+    function current(run, result) {
+      return mmScopeRuns.get(scope) === run && result.token === run.token;
+    }
+    function waitCurrent() {
+      var run = mmScopeRuns.get(scope);
+      if (!run) return Promise.resolve({ ready: true, errors: 0, cancelled: false });
+      return waitUntilDeadline(run.promise).then(function (result) {
+        if (result.cancelled || !current(run, result)) return waitCurrent();
+        if (run.settled) {
+          if (opts.requireSuccess && result.errors) throw new Error(result.errors + ' 个图表未能渲染');
+          return result;
+        }
+        var fonts = document.fonts && document.fonts.ready ? document.fonts.ready.catch(function () {}) : Promise.resolve();
+        return fonts.then(function () {
+          if (!current(run, result)) return waitCurrent();
+          return settleDiagramViewports(scope).then(function () {
+            if (!current(run, result)) return waitCurrent();
+            run.settled = true;
+            if (opts.requireSuccess && result.errors) throw new Error(result.errors + ' 个图表未能渲染');
+            return result;
+          });
+        });
+      });
+    }
+    return waitCurrent();
   }
   function mmError(block, target, err) {
     block.dataset.diagramState = 'error';
