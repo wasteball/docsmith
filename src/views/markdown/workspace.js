@@ -900,6 +900,12 @@
     svg.removeAttribute('width'); svg.removeAttribute('height');
     svg.style.maxWidth = 'none'; svg.style.margin = '0';
     svg.style.width = d.w + 'px'; svg.style.height = d.h + 'px'; svg.style.display = 'block';
+    var ratio = d.w / Math.max(1, d.h), wide = ratio >= 1.45;
+    svg.style.setProperty('--diagram-print-width', d.w + 'px');
+    /* A4 page height - 24mm page margins - the same 28mm wrapper reserve. */
+    svg.style.setProperty('--diagram-print-height-width', (ratio * (wide ? 158 : 245)) + 'mm');
+    var block = svg.closest('.diagram-block');
+    if (block) block.classList.toggle('diagram-print-wide', wide);
   }
   function bindTools(tools, pz, stage, d) {
     if (!tools) return;
@@ -1933,11 +1939,13 @@
     "bx={x:bb.x-pad,y:bb.y-pad,w:bb.width+pad*2,h:bb.height+pad*2};}}catch(e){}",
     "if(!bx&&vbx)bx=vbx;",
     "if(!bx||!bx.w)bx={x:0,y:0,w:svg.clientWidth||600,h:svg.clientHeight||400};",
-    "var d={w:bx.w,h:bx.h};",
+    "var d={w:bx.w,h:bx.h},ratio=d.w/Math.max(1,d.h),wide=ratio>=1.45;",
     "svg.setAttribute('viewBox',bx.x+' '+bx.y+' '+bx.w+' '+bx.h);",
     "svg.setAttribute('preserveAspectRatio','xMidYMid meet');",
     "svg.removeAttribute('width');svg.removeAttribute('height');",
     "svg.style.maxWidth='none';svg.style.margin='0';svg.style.width=d.w+'px';svg.style.height=d.h+'px';svg.style.display='block';",
+    "svg.style.setProperty('--diagram-print-width',d.w+'px');svg.style.setProperty('--diagram-print-height-width',(ratio*(wide?158:245))+'mm');",
+    "var block=svg.closest('.diagram-block');if(block)block.classList.toggle('diagram-print-wide',wide);",
     "var st={s:1,x:0,y:0},base={s:1,x:0,y:0},raf=0;",
     "function paint(){raf=0;stage.style.transform='translate('+st.x.toFixed(1)+'px,'+st.y.toFixed(1)+'px) scale('+st.s.toFixed(4)+')';",
     "var l=vp.parentNode.querySelector('[data-zoomlabel]');if(l)l.textContent=Math.round(st.s*100)+'%';}",

@@ -227,7 +227,7 @@
     width:100% !important; max-width:100% !important;
   }
   .doc .mm-stage{display:block !important; overflow:visible !important;}
-  .doc .mm-stage svg{width:100% !important; height:auto !important; max-width:100% !important; max-height:245mm !important; object-fit:contain; margin:0 auto !important;}
+  .doc .mm-stage svg{width:min(100%,var(--diagram-print-width,100%),var(--diagram-print-height-width,100%)) !important; height:auto !important; max-width:100% !important; max-height:none !important; object-fit:contain; margin:0 auto !important;}
   .doc .diagram-print-wide{page:wide-diagram; break-before:page; break-after:page;}
   .doc .cb-actions,.doc .copy-btn,.doc .mm-toggle,.doc .mm-copy,.doc .mm-flow-mode,.doc .mm-relations,.doc .h-anchor,.doc .mm-zoom{display:none !important;}
   .doc .code-block,.doc .diagram-block,.doc table,.doc blockquote,.doc .callout,.doc pre{page-break-inside:avoid;}
