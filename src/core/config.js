@@ -16,7 +16,7 @@
 export const BRAND = {
   name: 'Docsmith',
   nameZh: '文匠',
-  tagline: 'Markdown 工作台 · 卡片 · 文件库',
+  tagline: 'Markdown 工作台 · 文件库',
   /* 侧栏折叠时显示的单字标记 */
   mark: 'D',
   repo: 'https://github.com/YOUR-NAME/docsmith',
@@ -54,15 +54,6 @@ export const CAPABILITIES = [
     icon: '<path d="M12 7.2C10.6 6.1 8.7 5.5 6.4 5.5c-.9 0-1.7.1-2.4.2A1 1 0 0 0 3 6.7v10.6a1 1 0 0 0 1.2 1c.7-.1 1.4-.2 2.2-.2 2.3 0 4.2.6 5.6 1.7" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7.2c1.4-1.1 3.3-1.7 5.6-1.7.9 0 1.7.1 2.4.2a1 1 0 0 1 1 1v10.6a1 1 0 0 1-1.2 1c-.7-.1-1.4-.2-2.2-.2-2.3 0-4.2.6-5.6 1.7" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7.2v12.6" stroke-width="1.6" stroke-linecap="round"/><path d="M5.9 11.2h3.4" stroke-width="1.3" stroke-linecap="round" opacity=".5"/>',
   },
   {
-    id: 'cards',
-    name: '图文卡片',
-    desc: '文字变成图 · 发小红书、抖音',
-    url: 'src/views/cards/index.html',
-    builtin: true,
-    needs: [],
-    icon: '<rect x="3.2" y="4.6" width="13" height="15" rx="2" stroke-width="1.6" stroke-linejoin="round"/><path d="M18 7.4a2 2 0 0 1 2.8 1.2l.1.5v8.6a2 2 0 0 1-1.5 2" stroke-width="1.6" stroke-linecap="round" opacity=".55"/><path d="M6.4 9.4h6.6M6.4 12.6h6.6M6.4 15.8h4" stroke-width="1.4" stroke-linecap="round" opacity=".7"/>',
-  },
-  {
     id: 'files',
     name: '文件库',
     desc: '上传 · 分类 · 转换格式 · 一键拿到分享链接',
@@ -74,8 +65,7 @@ export const CAPABILITIES = [
 ];
 
 /* 调整上面 CAPABILITIES 的默认顺序后，把这个数字 +1。
- * 用户在「菜单管理」里存过的旧顺序会被作废一次，新顺序才生效。
- * v2：插入了「图文卡片」，老用户存的两项顺序要作废一次才能看到它。 */
+ * 用户在「菜单管理」里存过的旧顺序会被作废一次，新顺序才生效。 */
 export const ORDER_VERSION = 2;
 
 /* ------------------------------------------------------- 云存储：模板 *
